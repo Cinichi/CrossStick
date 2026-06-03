@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">CrossStick</string>
+    <string name="welcome_title">Transfer Stickers</string>
+    <string name="welcome_subtitle">Move your stickers between Telegram and WhatsApp seamlessly</string>
+    <string name="telegram_pack_link">Telegram sticker pack link</string>
+    <string name="link_placeholder">https://t.me/addstickers/PackName</string>
+    <string name="fetch_stickers">Fetch Stickers</string>
+    <string name="import_from_whatsapp">Import from WhatsApp</string>
+    <string name="from_whatsapp">From WhatsApp</string>
+    <string name="select_files_to_import">Select sticker files to import to Telegram</string>
+    <string name="bot_token_label">Bot Token</string>
+    <string name="bot_token_hint">Enter your bot token from @BotFather</string>
+    <string name="how_to_get_token">How to get a bot token?</string>
+    <string name="author_name_label">Publisher Name</string>
+    <string name="author_name_hint">Your name as sticker pack publisher</string>
+    <string name="continue_button">Continue</string>
+    <string name="get_started">Get Started</string>
+    <string name="bot_guide_title">Get a Bot Token</string>
+    <string name="bot_guide_text">1. Open Telegram and search for @BotFather\n2. Send /newbot and follow the instructions\n3. Choose a name and username for your bot\n4. Copy the token you receive\n5. Paste it here</string>
+    <string name="got_it">Got it</string>
+    <string name="loading">Loading…</string>
+    <string name="no_packs_yet">No packs yet</string>
+    <string name="error_fetching">Error fetching stickers. Please check your link and token.</string>
+</resources>
