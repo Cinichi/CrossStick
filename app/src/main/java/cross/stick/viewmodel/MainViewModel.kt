@@ -11,12 +11,14 @@ import cross.stick.data.local.PreferencesManager
 import cross.stick.data.model.TelegramStickerSet
 import cross.stick.data.repository.StickerRepository
 import cross.stick.whatsapp.WhatsAppIntentHelper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 data class SavedPack(
@@ -25,6 +27,15 @@ data class SavedPack(
     val stickerCount: Int,
     val path: File
 )
+
+sealed class ImportPhase {
+    object Idle : ImportPhase()
+    object Fetching : ImportPhase()
+    data class Downloading(val current: Int, val total: Int) : ImportPhase()
+    data class Converting(val current: Int, val total: Int) : ImportPhase()
+    object Done : ImportPhase()
+    data class Failed(val error: String) : ImportPhase()
+}
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -38,29 +49,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isReady = MutableStateFlow(false)
     val isReady: StateFlow<Boolean> = _isReady.asStateFlow()
 
-    private val _isLoading = MutableStateFlow(false)
-    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
-
-    private val _error = MutableStateFlow<String?>(null)
-    val error: StateFlow<String?> = _error.asStateFlow()
-
-    private val _stickerSet = MutableStateFlow<TelegramStickerSet?>(null)
-    val stickerSet: StateFlow<TelegramStickerSet?> = _stickerSet.asStateFlow()
-
-    private val _isDownloading = MutableStateFlow(false)
-    val isDownloading: StateFlow<Boolean> = _isDownloading.asStateFlow()
-
-    private val _downloadProgress = MutableStateFlow(0)
-    val downloadProgress: StateFlow<Int> = _downloadProgress.asStateFlow()
-
-    private val _isConverting = MutableStateFlow(false)
-    val isConverting: StateFlow<Boolean> = _isConverting.asStateFlow()
-
-    private val _conversionProgress = MutableStateFlow(0)
-    val conversionProgress: StateFlow<Int> = _conversionProgress.asStateFlow()
+    private val _phase = MutableStateFlow<ImportPhase>(ImportPhase.Idle)
+    val phase: StateFlow<ImportPhase> = _phase.asStateFlow()
 
     private val _currentPackId = MutableStateFlow<String?>(null)
     val currentPackId: StateFlow<String?> = _currentPackId.asStateFlow()
+
+    private val _convertedPackId = MutableStateFlow<String?>(null)
+    val convertedPackId: StateFlow<String?> = _convertedPackId.asStateFlow()
 
     private val _downloadedFiles = MutableStateFlow<List<File>>(emptyList())
     val downloadedFilePaths: List<File> get() = _downloadedFiles.value
@@ -104,11 +100,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun fetchStickerSet(link: String) {
         viewModelScope.launch {
-            _isLoading.value = true
-            _error.value = null
-            _stickerSet.value = null
+            _phase.value = ImportPhase.Fetching
             _downloadedFiles.value = emptyList()
-            _downloadProgress.value = 0
 
             val packName = repository.extractPackName(link)
             Log.d("CrossStick", "Fetching pack: $packName")
@@ -116,75 +109,66 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val result = repository.fetchStickerSet(packName)
             result.fold(
                 onSuccess = { stickerSet ->
-                    _stickerSet.value = stickerSet
-                    _isLoading.value = false
-                    downloadAllStickers(stickerSet)
+                    _currentPackId.value = stickerSet.name.replace(" ", "_")
+                    downloadAndConvertAll(stickerSet)
                 },
                 onFailure = { e ->
-                    _error.value = "Error: ${e.message ?: "Could not fetch stickers"}"
-                    _isLoading.value = false
+                    _phase.value = ImportPhase.Failed(e.message ?: "Could not fetch stickers")
                 }
             )
         }
     }
 
-    private fun downloadAllStickers(stickerSet: TelegramStickerSet) {
-        viewModelScope.launch {
-            _isDownloading.value = true
-            _error.value = null
-            val files = mutableListOf<File>()
-            val packId = stickerSet.name.replace(" ", "_")
-            val total = stickerSet.stickers.size
+    private suspend fun downloadAndConvertAll(stickerSet: TelegramStickerSet) {
+        val packId = stickerSet.name.replace(" ", "_")
+        val total = stickerSet.stickers.size
+        val files = mutableListOf<File>()
+        val outputDir = File(getApplication<Application>().filesDir, "stickers/converted/$packId")
+        if (!outputDir.exists()) outputDir.mkdirs()
 
-            stickerSet.stickers.forEachIndexed { index, sticker ->
-                repository.downloadSticker(sticker.file_id, packId, index).fold(
-                    onSuccess = { file ->
-                        files.add(file)
-                        _downloadProgress.value = ((index + 1) * 100) / total
-                    },
-                    onFailure = { e ->
-                        Log.e("CrossStick", "Failed to download sticker $index", e)
-                        _downloadProgress.value = ((index + 1) * 100) / total // yine de ilerle
+        stickerSet.stickers.forEachIndexed { index, sticker ->
+            // Skip animated stickers for now
+            if (sticker.is_animated || sticker.is_video) {
+                _phase.value = ImportPhase.Downloading(index + 1, total)
+                return@forEachIndexed
+            }
+
+            _phase.value = ImportPhase.Downloading(index + 1, total)
+
+            repository.downloadSticker(sticker.file_id, packId, index).fold(
+                onSuccess = { file ->
+                    files.add(file)
+                    // Convert immediately
+                    withContext(Dispatchers.Default) {
+                        ConversionEngine.convertToWhatsAppStatic(
+                            inputFile = file,
+                            outputDir = outputDir,
+                            outputName = "sticker_$index.webp"
+                        )
                     }
-                )
-            }
-
-            _downloadedFiles.value = files
-            _isDownloading.value = false
-            _downloadProgress.value = 100
+                    _phase.value = ImportPhase.Converting(index + 1, total)
+                },
+                onFailure = { e ->
+                    Log.e("CrossStick", "Failed sticker $index: ${e.message}")
+                }
+            )
         }
-    }
 
-    fun convertAllStickers() {
-        val packId = _stickerSet.value?.name?.replace(" ", "_") ?: return
-        viewModelScope.launch {
-            _isConverting.value = true
-            _currentPackId.value = packId
-            _conversionProgress.value = 0
-            val outputDir = File(getApplication<Application>().filesDir, "stickers/converted/$packId")
-            if (!outputDir.exists()) outputDir.mkdirs()
+        _downloadedFiles.value = files
 
-            val files = _downloadedFiles.value
-            val total = files.size
-            files.forEachIndexed { index, file ->
-                ConversionEngine.convertToWhatsAppStatic(
-                    inputFile = file,
-                    outputDir = outputDir,
-                    outputName = "sticker_$index.webp"
-                )
-                _conversionProgress.value = ((index + 1) * 100) / total
+        // Create tray icon
+        if (files.isNotEmpty()) {
+            withContext(Dispatchers.Default) {
+                ConversionEngine.createTrayFromFile(files[0], outputDir)
             }
-            if (files.isNotEmpty()) {
-                ConversionEngine.createTrayFromFile(
-                    inputFile = files[0],
-                    outputDir = outputDir
-                )
-            }
-            _isConverting.value = false
-            _conversionProgress.value = 100
-            addToWhatsApp(packId)
-            loadSavedPacks()
         }
+
+        _phase.value = ImportPhase.Done
+        _convertedPackId.value = packId
+        loadSavedPacks()
+
+        // Auto-add to WhatsApp
+        addToWhatsApp(packId)
     }
 
     fun addToWhatsApp(packId: String) {
@@ -197,14 +181,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    fun resetPhase() {
+        _phase.value = ImportPhase.Idle
+    }
+
     fun importToTelegram(uris: List<Uri>, emojis: List<String>) {
         val context = getApplication<Application>()
-        val intent = Intent("org.telegram.messenger.CREATE_STICKER_PACK").apply {
-            putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
-            putStringArrayListExtra("STICKER_EMOJIS", ArrayList(emojis))
-            type = "image/*"
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            val intent = Intent("org.telegram.messenger.CREATE_STICKER_PACK").apply {
+                putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+                putStringArrayListExtra("STICKER_EMOJIS", ArrayList(emojis))
+                type = "image/webp"
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            if (intent.resolveActivity(context.packageManager) != null) {
+                context.startActivity(intent)
+            }
+        } catch (e: Exception) {
+            Log.e("CrossStick", "Telegram import failed", e)
         }
-        context.startActivity(intent)
     }
 }

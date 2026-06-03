@@ -5,15 +5,13 @@ import androidx.compose.runtime.*
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import cross.stick.ui.screens.*
+import cross.stick.viewmodel.ImportPhase
 import cross.stick.viewmodel.MainViewModel
 
 object Routes {
     const val ONBOARDING = "onboarding"
     const val HOME = "home"
-    const val DOWNLOADING = "downloading"
-    const val PREVIEW = "preview"
-    const val CONVERTING = "converting"
-    const val MY_PACKS = "my_packs"
+    const val PROGRESS = "progress"
 }
 
 @Composable
@@ -21,26 +19,17 @@ fun AppNavGraph(viewModel: MainViewModel) {
     val navController = androidx.navigation.compose.rememberNavController()
     val onboardingComplete by viewModel.onboardingComplete.collectAsState(initial = false)
     val isReady by viewModel.isReady.collectAsState(initial = false)
-    val startDestination = if (onboardingComplete) Routes.HOME else Routes.ONBOARDING
-
-    val isLoading by viewModel.isLoading.collectAsState()
-    val error by viewModel.error.collectAsState()
-    val stickerSet by viewModel.stickerSet.collectAsState()
-    val isDownloading by viewModel.isDownloading.collectAsState()
-    val downloadProgress by viewModel.downloadProgress.collectAsState()
-    val isConverting by viewModel.isConverting.collectAsState()
-    val conversionProgress by viewModel.conversionProgress.collectAsState()
+    val phase by viewModel.phase.collectAsState()
     val currentPackId by viewModel.currentPackId.collectAsState()
-    val downloadedFiles = viewModel.downloadedFilePaths
+    val convertedPackId by viewModel.convertedPackId.collectAsState()
+    val startDestination = if (onboardingComplete) Routes.HOME else Routes.ONBOARDING
 
     if (isReady) {
         NavHost(
             navController = navController,
             startDestination = startDestination,
-            enterTransition = { fadeIn(tween(200)) },
-            exitTransition = { fadeOut(tween(150)) },
-            popEnterTransition = { fadeIn(tween(200)) },
-            popExitTransition = { fadeOut(tween(150)) }
+            enterTransition = { fadeIn(animationSpec = tween(300)) },
+            exitTransition = { fadeOut(animationSpec = tween(300)) }
         ) {
             composable(Routes.ONBOARDING) {
                 OnboardingScreen(
@@ -55,70 +44,39 @@ fun AppNavGraph(viewModel: MainViewModel) {
 
             composable(Routes.HOME) {
                 HomeScreen(
-                    isLoading = isLoading,
-                    error = error,
-                    stickerSet = stickerSet,
+                    phase = phase,
                     onFetchPack = { link -> viewModel.fetchStickerSet(link) },
-                    navigateToDownloading = { navController.navigate(Routes.DOWNLOADING) },
+                    onNavigateToProgress = {
+                        navController.navigate(Routes.PROGRESS)
+                    },
                     onImportFromWhatsApp = { uris, emojis -> viewModel.importToTelegram(uris, emojis) }
                 )
-            }
 
-            composable(Routes.DOWNLOADING) {
-                val packName = stickerSet?.name ?: "Unknown pack"
-                DownloadingScreen(
-                    packName = packName,
-                    progress = downloadProgress,
-                    onAutoNavigate = {
-                        if (downloadedFiles.isNotEmpty()) {
-                            navController.navigate(Routes.PREVIEW) {
-                                popUpTo(Routes.DOWNLOADING) { inclusive = true }
-                            }
-                        } else {
-                            navController.navigate(Routes.HOME) {
-                                popUpTo(Routes.DOWNLOADING) { inclusive = true }
-                            }
-                        }
+                // Otomatik geçiş
+                LaunchedEffect(phase) {
+                    if (phase is ImportPhase.Downloading || phase is ImportPhase.Converting) {
+                        navController.navigate(Routes.PROGRESS)
                     }
-                )
-            }
-
-            composable(Routes.PREVIEW) {
-                if (downloadedFiles.isEmpty()) {
-                    LaunchedEffect(Unit) {
-                        navController.navigate(Routes.HOME) {
-                            popUpTo(Routes.PREVIEW) { inclusive = true }
-                        }
-                    }
-                } else {
-                    PreviewScreen(
-                        files = downloadedFiles,
-                        onDelete = { /* TODO */ },
-                        onAddFiles = { /* TODO */ },
-                        onConvert = {
-                            viewModel.convertAllStickers()
-                            navController.navigate(Routes.CONVERTING) {
-                                popUpTo(Routes.PREVIEW) { inclusive = true }
-                            }
-                        }
-                    )
                 }
             }
 
-            composable(Routes.CONVERTING) {
-                ConvertingScreen(
-                    packName = currentPackId ?: "unknown",
-                    progress = conversionProgress,
-                    onAutoNavigate = {
+            composable(Routes.PROGRESS) {
+                ProgressScreen(
+                    phase = phase,
+                    packName = currentPackId ?: "Unknown",
+                    onDone = {
+                        viewModel.resetPhase()
                         navController.navigate(Routes.HOME) {
-                            popUpTo(Routes.CONVERTING) { inclusive = true }
+                            popUpTo(Routes.HOME) { inclusive = true }
+                        }
+                    },
+                    onRetry = {
+                        viewModel.resetPhase()
+                        navController.navigate(Routes.HOME) {
+                            popUpTo(Routes.HOME) { inclusive = true }
                         }
                     }
                 )
-            }
-
-            composable(Routes.MY_PACKS) {
-                MyPacksScreen()
             }
         }
     }
