@@ -1,9 +1,8 @@
 package cross.stick.ui.navigation
 
 import androidx.compose.animation.*
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
-import androidx.compose.ui.Modifier
-import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import cross.stick.ui.screens.*
@@ -56,11 +55,7 @@ fun AppNavGraph(viewModel: MainViewModel) {
             composable(Routes.DOWNLOADING) {
                 val stickerSet = viewModel.stickerSet.collectAsState().value
                 val packName = stickerSet?.name ?: "Unknown pack"
-                DownloadingScreen(
-                    packName = packName,
-                    progress = 50, // simplified, should be from VM state
-                    onCancel = { navController.popBackStack() }
-                )
+                DownloadingScreen(packName = packName, progress = 50)
                 LaunchedEffect(viewModel.isDownloading) {
                     if (!viewModel.isDownloading.value) {
                         navController.navigate(Routes.PREVIEW) {
@@ -71,9 +66,7 @@ fun AppNavGraph(viewModel: MainViewModel) {
             }
 
             composable(Routes.PREVIEW) {
-                // For now, use placeholder files from VM
-                val context = androidx.compose.ui.platform.LocalContext.current
-                val files = remember { viewModel.downloadedFilePaths }
+                val files = viewModel.downloadedFilePaths
                 PreviewScreen(
                     files = files,
                     onDelete = { /* TODO */ },
@@ -100,7 +93,6 @@ fun AppNavGraph(viewModel: MainViewModel) {
             }
 
             composable(Routes.MY_PACKS) {
-                // TODO: MyPacksScreen
                 Text("My Packs - coming soon")
             }
         }
