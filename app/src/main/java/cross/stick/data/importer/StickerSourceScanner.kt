@@ -18,15 +18,21 @@ class StickerSourceScanner(private val context: Context) {
         val sources = mutableListOf<DiscoveredStickerSource>()
         val pm = context.packageManager
 
-        // 1. Resolve all packages that we have visibility into
-        val installedPackages = pm.getInstalledPackages(PackageManager.GET_PROVIDERS or PackageManager.GET_META_DATA)
+        val installedPackages = try {
+            pm.getInstalledPackages(PackageManager.GET_PROVIDERS or PackageManager.GET_META_DATA)
+        } catch (e: Exception) {
+            Log.e("SourceScanner", "Failed to list packages", e)
+            emptyList()
+        }
 
         for (pkg in installedPackages) {
+            val appInfo = pkg.applicationInfo ?: continue
+            val appLabel = appInfo.loadLabel(pm).toString()
             val providers = pkg.providers ?: continue
+
             for (provider in providers) {
                 if (!provider.exported) continue
                 if (provider.readPermission == "com.whatsapp.sticker.READ") {
-                    val appLabel = pkg.applicationInfo.loadLabel(pm).toString()
                     val authority = provider.authority ?: continue
                     val isCompatible = testProviderMetadata(authority)
                     sources.add(
@@ -41,7 +47,7 @@ class StickerSourceScanner(private val context: Context) {
             }
         }
 
-        // 2. Manual check for StickerConv (known authority)
+        // Manual check for StickerConv
         val stickerConvAuthority = "com.mayakapps.stickerconv.provider"
         if (sources.none { it.authority == stickerConvAuthority }) {
             try {
