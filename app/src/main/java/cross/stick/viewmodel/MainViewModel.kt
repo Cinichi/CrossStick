@@ -10,6 +10,8 @@ import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import cross.stick.conversion.ConversionEngine
+import cross.stick.data.export.TelegramStickerExporter
+import cross.stick.data.importer.UniversalStickerPack
 import cross.stick.data.local.PackStorage
 import cross.stick.data.local.PreferencesManager
 import cross.stick.data.local.Sticker
@@ -283,6 +285,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             resolver.openAssetFileDescriptor(Uri.parse("content://$authority/stickers_asset/$packId/tray.png"), "r")?.close()
         } catch (e: Exception) { errors += "Tray cannot be opened: ${e.message}" }
         return errors
+    }
+
+    fun exportToTelegram(packs: List<UniversalStickerPack>) {
+        viewModelScope.launch {
+            val context = getApplication<Application>()
+            val exporter = TelegramStickerExporter(context)
+
+            for (pack in packs) {
+                Toast.makeText(context, "Exporting '${pack.title}' to Telegram...", Toast.LENGTH_SHORT).show()
+
+                exporter.exportPack(pack).fold(
+                    onSuccess = { url ->
+                        Toast.makeText(context, "Pack exported! $url", Toast.LENGTH_LONG).show()
+                    },
+                    onFailure = { e ->
+                        Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                )
+            }
+        }
     }
 
     fun resetPhase() { _phase.value = ImportPhase.Idle }

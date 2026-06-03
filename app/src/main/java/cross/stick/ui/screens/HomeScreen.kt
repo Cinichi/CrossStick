@@ -1,12 +1,11 @@
 package cross.stick.ui.screens
 
 import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -23,20 +22,11 @@ import cross.stick.viewmodel.ImportPhase
 fun HomeScreen(
     phase: ImportPhase,
     onFetchPack: (String) -> Unit,
-    onNavigateToProgress: () -> Unit,
+    onNavigateToWhatsAppImport: () -> Unit,
     onImportFromWhatsApp: (List<Uri>, List<String>) -> Unit
 ) {
     var link by remember { mutableStateOf("") }
     val isProcessing = phase !is ImportPhase.Idle && phase !is ImportPhase.Failed
-
-    val importLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetMultipleContents()
-    ) { uris ->
-        if (uris.isNotEmpty()) {
-            val emojis = List(uris.size) { "😀" }
-            onImportFromWhatsApp(uris, emojis)
-        }
-    }
 
     Column(
         modifier = Modifier
@@ -103,14 +93,21 @@ fun HomeScreen(
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text("WhatsApp → Telegram", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "Scan installed sticker apps for packs",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Spacer(modifier = Modifier.height(12.dp))
-                OutlinedButton(
-                    onClick = { importLauncher.launch("image/webp") },
+                Button(
+                    onClick = onNavigateToWhatsAppImport,
                     modifier = Modifier.fillMaxWidth().height(50.dp),
                     enabled = !isProcessing,
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Import to Telegram")
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Scan & Import Packs")
                 }
             }
         }

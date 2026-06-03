@@ -25,6 +25,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import cross.stick.data.importer.UniversalStickerPack
 import cross.stick.ui.screens.*
 import cross.stick.viewmodel.ImportPhase
 import cross.stick.viewmodel.MainViewModel
@@ -34,6 +35,7 @@ object Routes {
     const val HOME = "home"
     const val PROGRESS = "progress"
     const val PREVIEW = "preview"
+    const val WHATSAPP_IMPORT = "whatsapp_import"
     const val MY_PACKS = "my_packs"
     const val SETTINGS = "settings"
 }
@@ -118,9 +120,12 @@ fun AppNavGraph(viewModel: MainViewModel) {
                 })
             }
             composable(Routes.HOME) {
-                HomeScreen(phase = phase, onFetchPack = { link -> viewModel.fetchStickerSet(link) },
-                    onNavigateToProgress = { navController.navigate(Routes.PROGRESS) },
-                    onImportFromWhatsApp = { uris, emojis -> viewModel.importToTelegram(uris, emojis) })
+                HomeScreen(
+                    phase = phase,
+                    onFetchPack = { link -> viewModel.fetchStickerSet(link) },
+                    onNavigateToWhatsAppImport = { navController.navigate(Routes.WHATSAPP_IMPORT) },
+                    onImportFromWhatsApp = { uris, emojis -> viewModel.importToTelegram(uris, emojis) }
+                )
             }
             composable(Routes.PROGRESS) {
                 ProgressScreen(phase = phase, packName = currentPackId ?: "Unknown",
@@ -133,6 +138,15 @@ fun AppNavGraph(viewModel: MainViewModel) {
                     onAddStickers = { viewModel.addPreviewUris(it) },
                     onConvert = { viewModel.convertPreviewToWhatsApp() },
                     onBack = { viewModel.resetPhase(); navController.popBackStack(Routes.HOME, inclusive = false) })
+            }
+            composable(Routes.WHATSAPP_IMPORT) {
+                WhatsAppImportScreen(
+                    viewModel = viewModel,
+                    onExportToTelegram = { packs ->
+                        viewModel.exportToTelegram(packs)
+                    },
+                    onBack = { navController.popBackStack() }
+                )
             }
             composable(Routes.MY_PACKS) { MyPacksScreen(viewModel) }
             composable(Routes.SETTINGS) { SettingsScreen(viewModel) }

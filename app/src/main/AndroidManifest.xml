@@ -8,6 +8,7 @@
         <package android:name="com.whatsapp.w4b" />
         <package android:name="org.telegram.messenger" />
         <package android:name="org.telegram.messenger.web" />
+        <package android:name="com.mayakapps.stickerconv" />
         <intent>
             <action android:name="com.whatsapp.intent.action.ENABLE_STICKER_PACK" />
         </intent>
@@ -15,6 +16,7 @@
             <action android:name="org.telegram.messenger.CREATE_STICKER_PACK" />
             <data android:mimeType="image/*" />
         </intent>
+        <provider android:authorities="com.mayakapps.stickerconv.provider" />
     </queries>
 
     <application
