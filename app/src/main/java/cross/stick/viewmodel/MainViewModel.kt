@@ -50,8 +50,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isDownloading = MutableStateFlow(false)
     val isDownloading: StateFlow<Boolean> = _isDownloading.asStateFlow()
 
+    private val _downloadProgress = MutableStateFlow(0)
+    val downloadProgress: StateFlow<Int> = _downloadProgress.asStateFlow()
+
     private val _isConverting = MutableStateFlow(false)
     val isConverting: StateFlow<Boolean> = _isConverting.asStateFlow()
+
+    private val _conversionProgress = MutableStateFlow(0)
+    val conversionProgress: StateFlow<Int> = _conversionProgress.asStateFlow()
 
     private val _currentPackId = MutableStateFlow<String?>(null)
     val currentPackId: StateFlow<String?> = _currentPackId.asStateFlow()
@@ -102,6 +108,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _error.value = null
             _stickerSet.value = null
             _downloadedFiles.value = emptyList()
+            _downloadProgress.value = 0
 
             val packName = repository.extractPackName(link)
             Log.d("CrossStick", "Fetching pack: $packName")
@@ -109,13 +116,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val result = repository.fetchStickerSet(packName)
             result.fold(
                 onSuccess = { stickerSet ->
-                    Log.d("CrossStick", "Got sticker set: ${stickerSet.name}, ${stickerSet.stickers.size} stickers")
                     _stickerSet.value = stickerSet
                     _isLoading.value = false
                     downloadAllStickers(stickerSet)
                 },
                 onFailure = { e ->
-                    Log.e("CrossStick", "Fetch failed", e)
                     _error.value = "Error: ${e.message ?: "Could not fetch stickers"}"
                     _isLoading.value = false
                 }
@@ -129,19 +134,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _error.value = null
             val files = mutableListOf<File>()
             val packId = stickerSet.name.replace(" ", "_")
+            val total = stickerSet.stickers.size
 
             stickerSet.stickers.forEachIndexed { index, sticker ->
                 repository.downloadSticker(sticker.file_id, packId, index).fold(
-                    onSuccess = { file -> files.add(file) },
+                    onSuccess = { file ->
+                        files.add(file)
+                        _downloadProgress.value = ((index + 1) * 100) / total
+                    },
                     onFailure = { e ->
                         Log.e("CrossStick", "Failed to download sticker $index", e)
+                        _downloadProgress.value = ((index + 1) * 100) / total // yine de ilerle
                     }
                 )
             }
 
             _downloadedFiles.value = files
             _isDownloading.value = false
-            Log.d("CrossStick", "Downloaded ${files.size} stickers")
+            _downloadProgress.value = 100
         }
     }
 
@@ -150,23 +160,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _isConverting.value = true
             _currentPackId.value = packId
+            _conversionProgress.value = 0
             val outputDir = File(getApplication<Application>().filesDir, "stickers/converted/$packId")
             if (!outputDir.exists()) outputDir.mkdirs()
 
-            _downloadedFiles.value.forEachIndexed { index, file ->
+            val files = _downloadedFiles.value
+            val total = files.size
+            files.forEachIndexed { index, file ->
                 ConversionEngine.convertToWhatsAppStatic(
                     inputFile = file,
                     outputDir = outputDir,
                     outputName = "sticker_$index.webp"
                 )
+                _conversionProgress.value = ((index + 1) * 100) / total
             }
-            if (_downloadedFiles.value.isNotEmpty()) {
+            if (files.isNotEmpty()) {
                 ConversionEngine.createTrayFromFile(
-                    inputFile = _downloadedFiles.value[0],
+                    inputFile = files[0],
                     outputDir = outputDir
                 )
             }
             _isConverting.value = false
+            _conversionProgress.value = 100
             addToWhatsApp(packId)
             loadSavedPacks()
         }

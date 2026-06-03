@@ -27,7 +27,9 @@ fun AppNavGraph(viewModel: MainViewModel) {
     val error by viewModel.error.collectAsState()
     val stickerSet by viewModel.stickerSet.collectAsState()
     val isDownloading by viewModel.isDownloading.collectAsState()
+    val downloadProgress by viewModel.downloadProgress.collectAsState()
     val isConverting by viewModel.isConverting.collectAsState()
+    val conversionProgress by viewModel.conversionProgress.collectAsState()
     val currentPackId by viewModel.currentPackId.collectAsState()
     val downloadedFiles = viewModel.downloadedFilePaths
 
@@ -35,10 +37,10 @@ fun AppNavGraph(viewModel: MainViewModel) {
         NavHost(
             navController = navController,
             startDestination = startDestination,
-            enterTransition = { slideInHorizontally(initialOffsetX = { it }) + fadeIn() },
-            exitTransition = { slideOutHorizontally(targetOffsetX = { -it/3 }) + fadeOut() },
-            popEnterTransition = { slideInHorizontally(initialOffsetX = { -it/3 }) + fadeIn() },
-            popExitTransition = { slideOutHorizontally(targetOffsetX = { it }) + fadeOut() }
+            enterTransition = { fadeIn(tween(200)) },
+            exitTransition = { fadeOut(tween(150)) },
+            popEnterTransition = { fadeIn(tween(200)) },
+            popExitTransition = { fadeOut(tween(150)) }
         ) {
             composable(Routes.ONBOARDING) {
                 OnboardingScreen(
@@ -64,9 +66,10 @@ fun AppNavGraph(viewModel: MainViewModel) {
 
             composable(Routes.DOWNLOADING) {
                 val packName = stickerSet?.name ?: "Unknown pack"
-                DownloadingScreen(packName = packName, progress = 50)
-                LaunchedEffect(isDownloading) {
-                    if (!isDownloading) {
+                DownloadingScreen(
+                    packName = packName,
+                    progress = downloadProgress,
+                    onAutoNavigate = {
                         if (downloadedFiles.isNotEmpty()) {
                             navController.navigate(Routes.PREVIEW) {
                                 popUpTo(Routes.DOWNLOADING) { inclusive = true }
@@ -77,13 +80,15 @@ fun AppNavGraph(viewModel: MainViewModel) {
                             }
                         }
                     }
-                }
+                )
             }
 
             composable(Routes.PREVIEW) {
                 if (downloadedFiles.isEmpty()) {
-                    navController.navigate(Routes.HOME) {
-                        popUpTo(Routes.PREVIEW) { inclusive = true }
+                    LaunchedEffect(Unit) {
+                        navController.navigate(Routes.HOME) {
+                            popUpTo(Routes.PREVIEW) { inclusive = true }
+                        }
                     }
                 } else {
                     PreviewScreen(
@@ -101,14 +106,15 @@ fun AppNavGraph(viewModel: MainViewModel) {
             }
 
             composable(Routes.CONVERTING) {
-                ConvertingScreen(packName = currentPackId ?: "unknown", progress = 70)
-                LaunchedEffect(isConverting) {
-                    if (!isConverting) {
+                ConvertingScreen(
+                    packName = currentPackId ?: "unknown",
+                    progress = conversionProgress,
+                    onAutoNavigate = {
                         navController.navigate(Routes.HOME) {
                             popUpTo(Routes.CONVERTING) { inclusive = true }
                         }
                     }
-                }
+                )
             }
 
             composable(Routes.MY_PACKS) {

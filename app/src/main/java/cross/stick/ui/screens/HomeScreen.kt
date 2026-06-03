@@ -48,97 +48,114 @@ fun HomeScreen(
         }
     }
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Spacer(modifier = Modifier.height(64.dp))
-
-            Text(
-                text = "Transfer",
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = "Stickers.",
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
-
-            Text(
-                text = "Paste a Telegram sticker pack link",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp, bottom = 32.dp)
-            )
-
-            OutlinedTextField(
-                value = link,
-                onValueChange = { link = it },
-                label = { Text("Telegram sticker pack link") },
-                placeholder = { Text("https://t.me/addstickers/PackName") },
-                leadingIcon = { Icon(Icons.Default.Link, contentDescription = null) },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.large
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Button(
-                onClick = { onFetchPack(link) },
-                enabled = link.isNotBlank() && !isLoading,
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            snackbarHost = { SnackbarHost(snackbarHostState) }
+        ) { padding ->
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(54.dp),
-                shape = MaterialTheme.shapes.large
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        strokeWidth = 2.dp
-                    )
-                } else {
-                    Icon(Icons.Default.Search, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Fetch Stickers")
+                Spacer(modifier = Modifier.height(64.dp))
+
+                Text(
+                    text = "Transfer",
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Stickers.",
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                Text(
+                    text = "Paste a Telegram sticker pack link",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 32.dp)
+                )
+
+                OutlinedTextField(
+                    value = link,
+                    onValueChange = { link = it },
+                    label = { Text("Telegram sticker pack link") },
+                    placeholder = { Text("https://t.me/addstickers/PackName") },
+                    leadingIcon = { Icon(Icons.Default.Link, contentDescription = null) },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                    singleLine = true,
+                    enabled = !isLoading,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.large
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = { onFetchPack(link) },
+                    enabled = link.isNotBlank() && !isLoading,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp),
+                    shape = MaterialTheme.shapes.large
+                ) {
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(Icons.Default.Search, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Fetch Stickers")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(32.dp))
+
+                Text(
+                    text = "From WhatsApp",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "Select sticker files to import to Telegram",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedButton(
+                    onClick = { importLauncher.launch("image/*") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp),
+                    enabled = !isLoading,
+                    shape = MaterialTheme.shapes.large
+                ) {
+                    Text("Import from WhatsApp")
                 }
             }
+        }
 
-            Spacer(modifier = Modifier.height(32.dp))
-            HorizontalDivider()
-            Spacer(modifier = Modifier.height(32.dp))
-
-            Text(
-                text = "From WhatsApp",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                text = "Select sticker files to import to Telegram",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            OutlinedButton(
-                onClick = { importLauncher.launch("image/*") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(54.dp),
-                shape = MaterialTheme.shapes.large
+        // Loading overlay
+        if (isLoading) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                onClick = {} // tıkları engelle
             ) {
-                Text("Import from WhatsApp")
+                Box(contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
             }
         }
     }
