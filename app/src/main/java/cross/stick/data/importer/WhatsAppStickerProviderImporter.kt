@@ -36,9 +36,10 @@ class WhatsAppStickerProviderImporter(private val context: Context) {
                     packs.add(UniversalStickerPack(
                         id = packId,
                         title = packName,
-                        sourceAppPackage = source.packageName,
+                        sourcePackage = source.packageName,
                         sourceAuthority = authority,
-                        sourceType = SourceType.CONTENT_PROVIDER,
+                        sourceLayer = SourceLayer.CONTENT_PROVIDER,
+                        confidence = Confidence.HIGH,
                         format = format,
                         stickers = stickers
                     ))
@@ -74,12 +75,12 @@ class WhatsAppStickerProviderImporter(private val context: Context) {
 
                     stickers.add(UniversalSticker(
                         id = "$packId-$index",
-                        file = localFile,
+                        sourcePath = null,
+                        sourceUri = assetUri,
+                        localFile = localFile,
                         originalFileName = fileName,
                         emojiList = emojis,
                         index = index,
-                        width = null,
-                        height = null,
                         mimeType = mimeType
                     ))
                     index++

@@ -15,7 +15,6 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.File
 import java.util.concurrent.TimeUnit
 
 class TelegramStickerExporter(private val context: Context) {
@@ -30,16 +29,15 @@ class TelegramStickerExporter(private val context: Context) {
         try {
             val token = getBotToken() ?: return@withContext Result.failure(Exception("Bot token not set"))
             val packName = "${pack.id}_by_${getBotUsername(token)}"
-
-            // 1. Upload sticker files first
             val uploadedStickers = mutableListOf<JSONObject>()
+
             pack.stickers.forEachIndexed { index, sticker ->
-                val fileId = uploadStickerFile(token, sticker.file)
+                val fileId = uploadStickerFile(token, sticker.localFile)
                 if (fileId != null) {
                     val stickerObj = JSONObject().apply {
                         put("sticker", "attach://sticker$index")
                         put("emoji_list", JSONArray(sticker.emojiList))
-                        put("format", when (sticker.file.extension.lowercase()) {
+                        put("format", when (sticker.localFile.extension.lowercase()) {
                             "tgs" -> "animated"
                             "webm" -> "video"
                             else -> "static"
@@ -53,9 +51,7 @@ class TelegramStickerExporter(private val context: Context) {
                 return@withContext Result.failure(Exception("No stickers could be uploaded"))
             }
 
-            // 2. Create sticker set
             createStickerSet(token, packName, pack.title, uploadedStickers, pack.format)
-
             Result.success("https://t.me/addstickers/$packName")
         } catch (e: Exception) {
             Log.e("TelegramExport", "Export failed", e)
@@ -63,7 +59,7 @@ class TelegramStickerExporter(private val context: Context) {
         }
     }
 
-    private suspend fun uploadStickerFile(token: String, file: File): String? {
+    private suspend fun uploadStickerFile(token: String, file: java.io.File): String? {
         return try {
             val mediaType = when (file.extension.lowercase()) {
                 "png" -> "image/png".toMediaTypeOrNull()
@@ -98,11 +94,8 @@ class TelegramStickerExporter(private val context: Context) {
     }
 
     private suspend fun createStickerSet(
-        token: String,
-        name: String,
-        title: String,
-        stickers: List<JSONObject>,
-        format: StickerFormat
+        token: String, name: String, title: String,
+        stickers: List<JSONObject>, format: StickerFormat
     ): Boolean {
         try {
             val json = JSONObject().apply {
@@ -117,8 +110,7 @@ class TelegramStickerExporter(private val context: Context) {
             }
 
             val requestBody = okhttp3.RequestBody.create(
-                "application/json".toMediaTypeOrNull(),
-                json.toString()
+                "application/json".toMediaTypeOrNull(), json.toString()
             )
 
             val request = Request.Builder()
@@ -127,13 +119,8 @@ class TelegramStickerExporter(private val context: Context) {
                 .build()
 
             val response = client.newCall(request).execute()
-            val responseJson = JSONObject(response.body?.string() ?: "")
-            
-            return responseJson.getBoolean("ok")
-        } catch (e: Exception) {
-            Log.e("TelegramExport", "Create sticker set failed", e)
-            return false
-        }
+            return JSONObject(response.body?.string() ?: "").getBoolean("ok")
+        } catch (e: Exception) { return false }
     }
 
     private suspend fun getBotToken(): String? {
@@ -148,11 +135,7 @@ class TelegramStickerExporter(private val context: Context) {
                 .build()
             val response = client.newCall(request).execute()
             val json = JSONObject(response.body?.string() ?: "")
-            if (json.getBoolean("ok")) {
-                json.getJSONObject("result").getString("username")
-            } else "bot"
-        } catch (e: Exception) {
-            "bot"
-        }
+            if (json.getBoolean("ok")) json.getJSONObject("result").getString("username") else "bot"
+        } catch (e: Exception) { "bot" }
     }
 }
