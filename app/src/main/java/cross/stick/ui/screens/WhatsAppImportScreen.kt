@@ -21,6 +21,7 @@ import cross.stick.data.importer.WhatsAppStickerProviderImporter
 import cross.stick.viewmodel.MainViewModel
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 fun WhatsAppImportScreen(
     viewModel: MainViewModel,
     onExportToTelegram: (List<UniversalStickerPack>) -> Unit,
