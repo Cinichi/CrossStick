@@ -3,7 +3,14 @@ package cross.stick.data.model
 data class TelegramResponse<T>(
     val ok: Boolean,
     val result: T?,
-    val description: String?
+    val description: String?,
+    val error_code: Int? = null,
+    val parameters: TelegramResponseParameters? = null
+)
+
+data class TelegramResponseParameters(
+    val retry_after: Int? = null,
+    val migrate_to_chat_id: Long? = null
 )
 
 data class TelegramStickerSet(

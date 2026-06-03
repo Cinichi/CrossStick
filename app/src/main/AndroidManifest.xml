@@ -7,6 +7,14 @@
         <package android:name="com.whatsapp" />
         <package android:name="com.whatsapp.w4b" />
         <package android:name="org.telegram.messenger" />
+        <package android:name="org.telegram.messenger.web" />
+        <intent>
+            <action android:name="com.whatsapp.intent.action.ENABLE_STICKER_PACK" />
+        </intent>
+        <intent>
+            <action android:name="org.telegram.messenger.CREATE_STICKER_PACK" />
+            <data android:mimeType="image/*" />
+        </intent>
     </queries>
 
     <application
@@ -29,6 +37,7 @@
         <provider
             android:name="cross.stick.whatsapp.StickerContentProvider"
             android:authorities="cross.stick.stickercontentprovider"
+            android:enabled="true"
             android:exported="true"
             android:readPermission="com.whatsapp.sticker.READ" />
     </application>

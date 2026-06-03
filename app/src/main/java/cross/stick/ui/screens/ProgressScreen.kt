@@ -23,7 +23,7 @@ fun ProgressScreen(
         showMinimum = true
     }
 
-    LaunchedEffect(phase) {
+    LaunchedEffect(phase, showMinimum) {
         if (phase is ImportPhase.Done && showMinimum) {
             kotlinx.coroutines.delay(600)
             onDone()
@@ -58,6 +58,11 @@ fun ProgressScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text("${phase.current} of ${phase.total}", style = MaterialTheme.typography.bodyMedium)
+            }
+            is ImportPhase.PreviewReady -> {
+                Text("Ready to preview", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Opening preview...", style = MaterialTheme.typography.bodyLarge)
             }
             is ImportPhase.Converting -> {
                 CircularProgressIndicator()

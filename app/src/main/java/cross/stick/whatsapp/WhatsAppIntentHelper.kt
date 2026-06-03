@@ -1,5 +1,6 @@
 package cross.stick.whatsapp
 
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
@@ -12,7 +13,7 @@ object WhatsAppIntentHelper {
         packName: String,
         authority: String
     ) {
-        launchForPackage(context, packId, packName, authority, "com.whatsapp")
+        launchForPackage(context, packId, packName, authority, "com.whatsapp", "WhatsApp")
     }
 
     fun addStickerPackToWhatsAppBusiness(
@@ -21,7 +22,7 @@ object WhatsAppIntentHelper {
         packName: String,
         authority: String
     ) {
-        launchForPackage(context, packId, packName, authority, "com.whatsapp.w4b")
+        launchForPackage(context, packId, packName, authority, "com.whatsapp.w4b", "WhatsApp Business")
     }
 
     private fun launchForPackage(
@@ -29,20 +30,38 @@ object WhatsAppIntentHelper {
         packId: String,
         packName: String,
         authority: String,
-        packageName: String
+        packageName: String,
+        appName: String
     ) {
-        val pm = context.packageManager
-        if (pm.getLaunchIntentForPackage(packageName) == null) {
-            Toast.makeText(context, "WhatsApp is not installed", Toast.LENGTH_SHORT).show()
+        if (!isPackageInstalled(context, packageName)) {
+            Toast.makeText(context, "$appName is not installed", Toast.LENGTH_SHORT).show()
             return
         }
+
         val intent = Intent("com.whatsapp.intent.action.ENABLE_STICKER_PACK").apply {
             putExtra("sticker_pack_id", packId)
             putExtra("sticker_pack_authority", authority)
-            putExtra("sticker_pack_name", packName)
+            putExtra("sticker_pack_name", packName.take(128))
             setPackage(packageName)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        context.startActivity(intent)
+
+        try {
+            context.startActivity(intent)
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(context, "$appName could not open sticker import", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(context, "Could not add sticker pack: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun isPackageInstalled(context: Context, packageName: String): Boolean {
+        return try {
+            context.packageManager.getPackageInfo(packageName, 0)
+            true
+        } catch (_: Exception) {
+            false
+        }
     }
 }

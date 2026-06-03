@@ -1,6 +1,5 @@
 package cross.stick.conversion
 
-import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -72,13 +71,37 @@ object ConversionEngine {
 
     fun createTrayFromFile(inputFile: File, outputDir: File): File {
         val bitmap = BitmapFactory.decodeFile(inputFile.absolutePath)
-        val tray = Bitmap.createScaledBitmap(bitmap, 96, 96, true)
+            ?: throw IllegalArgumentException("Cannot decode tray source")
+        val tray = scaleToTransparent(bitmap, 96)
         val trayFile = File(outputDir, "tray.png")
-        FileOutputStream(trayFile).use { fos ->
-            tray.compress(Bitmap.CompressFormat.PNG, 100, fos)
-        }
+
+        var quality = 100
+        do {
+            FileOutputStream(trayFile).use { fos ->
+                tray.compress(Bitmap.CompressFormat.PNG, quality, fos)
+            }
+            quality -= 10
+        } while (trayFile.length() > 50 * 1024 && quality >= 70)
+
         tray.recycle()
         bitmap.recycle()
         return trayFile
+    }
+
+    private fun scaleToTransparent(original: Bitmap, size: Int): Bitmap {
+        val result = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(result)
+        val ratio = minOf(
+            size.toFloat() / original.width,
+            size.toFloat() / original.height
+        )
+        val newW = (original.width * ratio).toInt().coerceAtLeast(1)
+        val newH = (original.height * ratio).toInt().coerceAtLeast(1)
+        val scaled = Bitmap.createScaledBitmap(original, newW, newH, true)
+        val left = (size - newW) / 2
+        val top = (size - newH) / 2
+        canvas.drawBitmap(scaled, left.toFloat(), top.toFloat(), null)
+        scaled.recycle()
+        return result
     }
 }

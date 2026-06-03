@@ -1,21 +1,34 @@
 package cross.stick.ui.navigation
 
-import androidx.compose.animation.*
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import cross.stick.ui.screens.*
+import cross.stick.ui.screens.HomeScreen
+import cross.stick.ui.screens.MyPacksScreen
+import cross.stick.ui.screens.OnboardingScreen
+import cross.stick.ui.screens.PreviewScreen
+import cross.stick.ui.screens.ProgressScreen
+import cross.stick.ui.screens.SettingsScreen
 import cross.stick.viewmodel.ImportPhase
 import cross.stick.viewmodel.MainViewModel
 
@@ -23,6 +36,7 @@ object Routes {
     const val ONBOARDING = "onboarding"
     const val HOME = "home"
     const val PROGRESS = "progress"
+    const val PREVIEW = "preview"
     const val MY_PACKS = "my_packs"
     const val SETTINGS = "settings"
 }
@@ -34,54 +48,71 @@ fun AppNavGraph(viewModel: MainViewModel) {
     val isReady by viewModel.isReady.collectAsState(initial = false)
     val phase by viewModel.phase.collectAsState()
     val currentPackId by viewModel.currentPackId.collectAsState()
+    val previewStickers by viewModel.previewStickers.collectAsState()
     val startDestination = if (onboardingComplete) Routes.HOME else Routes.ONBOARDING
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
 
     if (!isReady) return
 
+    LaunchedEffect(phase, currentRoute) {
+        when (phase) {
+            is ImportPhase.Fetching,
+            is ImportPhase.Downloading,
+            is ImportPhase.Converting -> {
+                if (currentRoute != Routes.PROGRESS) {
+                    navController.navigate(Routes.PROGRESS) { launchSingleTop = true }
+                }
+            }
+            is ImportPhase.PreviewReady -> {
+                if (currentRoute != Routes.PREVIEW) {
+                    navController.navigate(Routes.PREVIEW) { launchSingleTop = true }
+                }
+            }
+            else -> Unit
+        }
+    }
+
     Scaffold(
         bottomBar = {
-            if (onboardingComplete) {
-                val navBackStackEntry by navController.currentBackStackEntryAsState()
-                val currentRoute = navBackStackEntry?.destination?.route
-                if (currentRoute in listOf(Routes.HOME, Routes.MY_PACKS, Routes.SETTINGS)) {
-                    NavigationBar {
-                        NavigationBarItem(
-                            icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
-                            label = { Text("Home") },
-                            selected = currentRoute == Routes.HOME,
-                            onClick = {
-                                navController.navigate(Routes.HOME) {
-                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
+            if (onboardingComplete && currentRoute in listOf(Routes.HOME, Routes.MY_PACKS, Routes.SETTINGS)) {
+                NavigationBar {
+                    NavigationBarItem(
+                        icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
+                        label = { Text("Home") },
+                        selected = currentRoute == Routes.HOME,
+                        onClick = {
+                            navController.navigate(Routes.HOME) {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
                             }
-                        )
-                        NavigationBarItem(
-                            icon = { Icon(Icons.Default.Inventory2, contentDescription = "My Packs") },
-                            label = { Text("My Packs") },
-                            selected = currentRoute == Routes.MY_PACKS,
-                            onClick = {
-                                navController.navigate(Routes.MY_PACKS) {
-                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
+                        }
+                    )
+                    NavigationBarItem(
+                        icon = { Icon(Icons.Default.Inventory2, contentDescription = "My Packs") },
+                        label = { Text("My Packs") },
+                        selected = currentRoute == Routes.MY_PACKS,
+                        onClick = {
+                            navController.navigate(Routes.MY_PACKS) {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
                             }
-                        )
-                        NavigationBarItem(
-                            icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
-                            label = { Text("Settings") },
-                            selected = currentRoute == Routes.SETTINGS,
-                            onClick = {
-                                navController.navigate(Routes.SETTINGS) {
-                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
+                        }
+                    )
+                    NavigationBarItem(
+                        icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
+                        label = { Text("Settings") },
+                        selected = currentRoute == Routes.SETTINGS,
+                        onClick = {
+                            navController.navigate(Routes.SETTINGS) {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
                             }
-                        )
-                    }
+                        }
+                    )
                 }
             }
         }
@@ -108,17 +139,9 @@ fun AppNavGraph(viewModel: MainViewModel) {
                 HomeScreen(
                     phase = phase,
                     onFetchPack = { link -> viewModel.fetchStickerSet(link) },
-                    onNavigateToProgress = {
-                        navController.navigate(Routes.PROGRESS)
-                    },
+                    onNavigateToProgress = { navController.navigate(Routes.PROGRESS) },
                     onImportFromWhatsApp = { uris, emojis -> viewModel.importToTelegram(uris, emojis) }
                 )
-
-                LaunchedEffect(phase) {
-                    if (phase is ImportPhase.Downloading || phase is ImportPhase.Converting) {
-                        navController.navigate(Routes.PROGRESS)
-                    }
-                }
             }
 
             composable(Routes.PROGRESS) {
@@ -136,6 +159,20 @@ fun AppNavGraph(viewModel: MainViewModel) {
                         navController.navigate(Routes.HOME) {
                             popUpTo(Routes.PROGRESS) { inclusive = true }
                         }
+                    }
+                )
+            }
+
+            composable(Routes.PREVIEW) {
+                PreviewScreen(
+                    packName = currentPackId ?: "Preview",
+                    stickers = previewStickers,
+                    onRemoveSticker = { viewModel.removePreviewSticker(it) },
+                    onAddStickers = { viewModel.addPreviewUris(it) },
+                    onConvert = { viewModel.convertPreviewToWhatsApp() },
+                    onBack = {
+                        viewModel.resetPhase()
+                        navController.popBackStack(Routes.HOME, inclusive = false)
                     }
                 )
             }

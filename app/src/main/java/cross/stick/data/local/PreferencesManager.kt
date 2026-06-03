@@ -13,6 +13,9 @@ private val Context.dataStore by preferencesDataStore(name = "crossstick_prefs")
 class PreferencesManager(private val context: Context) {
 
     companion object {
+        const val SYNC_PREFS_NAME = "crossstick_sync_prefs"
+        const val SYNC_AUTHOR_NAME = "author_name"
+
         private val KEY_BOT_TOKEN = stringPreferencesKey("bot_token")
         private val KEY_AUTHOR_NAME = stringPreferencesKey("author_name")
         private val KEY_ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
@@ -28,6 +31,10 @@ class PreferencesManager(private val context: Context) {
 
     suspend fun saveAuthorName(name: String) {
         context.dataStore.edit { it[KEY_AUTHOR_NAME] = name }
+        context.getSharedPreferences(SYNC_PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(SYNC_AUTHOR_NAME, name)
+            .apply()
     }
 
     suspend fun completeOnboarding() {
