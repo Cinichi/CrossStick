@@ -1,7 +1,6 @@
 package cross.stick.ui.navigation
 
 import androidx.compose.animation.*
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -30,6 +29,7 @@ fun AppNavGraph(viewModel: MainViewModel) {
     val isDownloading by viewModel.isDownloading.collectAsState()
     val isConverting by viewModel.isConverting.collectAsState()
     val currentPackId by viewModel.currentPackId.collectAsState()
+    val downloadedFiles = viewModel.downloadedFilePaths
 
     if (isReady) {
         NavHost(
@@ -67,26 +67,37 @@ fun AppNavGraph(viewModel: MainViewModel) {
                 DownloadingScreen(packName = packName, progress = 50)
                 LaunchedEffect(isDownloading) {
                     if (!isDownloading) {
-                        navController.navigate(Routes.PREVIEW) {
-                            popUpTo(Routes.DOWNLOADING) { inclusive = true }
+                        if (downloadedFiles.isNotEmpty()) {
+                            navController.navigate(Routes.PREVIEW) {
+                                popUpTo(Routes.DOWNLOADING) { inclusive = true }
+                            }
+                        } else {
+                            navController.navigate(Routes.HOME) {
+                                popUpTo(Routes.DOWNLOADING) { inclusive = true }
+                            }
                         }
                     }
                 }
             }
 
             composable(Routes.PREVIEW) {
-                val files = viewModel.downloadedFilePaths
-                PreviewScreen(
-                    files = files,
-                    onDelete = { /* TODO */ },
-                    onAddFiles = { /* TODO */ },
-                    onConvert = {
-                        viewModel.convertAllStickers()
-                        navController.navigate(Routes.CONVERTING) {
-                            popUpTo(Routes.PREVIEW) { inclusive = true }
-                        }
+                if (downloadedFiles.isEmpty()) {
+                    navController.navigate(Routes.HOME) {
+                        popUpTo(Routes.PREVIEW) { inclusive = true }
                     }
-                )
+                } else {
+                    PreviewScreen(
+                        files = downloadedFiles,
+                        onDelete = { /* TODO */ },
+                        onAddFiles = { /* TODO */ },
+                        onConvert = {
+                            viewModel.convertAllStickers()
+                            navController.navigate(Routes.CONVERTING) {
+                                popUpTo(Routes.PREVIEW) { inclusive = true }
+                            }
+                        }
+                    )
+                }
             }
 
             composable(Routes.CONVERTING) {
@@ -94,14 +105,14 @@ fun AppNavGraph(viewModel: MainViewModel) {
                 LaunchedEffect(isConverting) {
                     if (!isConverting) {
                         navController.navigate(Routes.HOME) {
-                            popUpTo(Routes.HOME) { inclusive = true }
+                            popUpTo(Routes.CONVERTING) { inclusive = true }
                         }
                     }
                 }
             }
 
             composable(Routes.MY_PACKS) {
-                Text("My Packs - coming soon")
+                MyPacksScreen()
             }
         }
     }

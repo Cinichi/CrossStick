@@ -3,6 +3,7 @@ package cross.stick.viewmodel
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import cross.stick.conversion.ConversionEngine
@@ -99,18 +100,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
+            _stickerSet.value = null
+            _downloadedFiles.value = emptyList()
+
             val packName = repository.extractPackName(link)
-            repository.fetchStickerSet(packName).fold(
+            Log.d("CrossStick", "Fetching pack: $packName")
+
+            val result = repository.fetchStickerSet(packName)
+            result.fold(
                 onSuccess = { stickerSet ->
+                    Log.d("CrossStick", "Got sticker set: ${stickerSet.name}, ${stickerSet.stickers.size} stickers")
                     _stickerSet.value = stickerSet
+                    _isLoading.value = false
                     downloadAllStickers(stickerSet)
                 },
                 onFailure = { e ->
+                    Log.e("CrossStick", "Fetch failed", e)
                     _error.value = "Error: ${e.message ?: "Could not fetch stickers"}"
-                    _stickerSet.value = null
+                    _isLoading.value = false
                 }
             )
-            _isLoading.value = false
         }
     }
 
@@ -120,14 +129,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _error.value = null
             val files = mutableListOf<File>()
             val packId = stickerSet.name.replace(" ", "_")
+
             stickerSet.stickers.forEachIndexed { index, sticker ->
                 repository.downloadSticker(sticker.file_id, packId, index).fold(
                     onSuccess = { file -> files.add(file) },
-                    onFailure = { /* skip failed stickers */ }
+                    onFailure = { e ->
+                        Log.e("CrossStick", "Failed to download sticker $index", e)
+                    }
                 )
             }
+
             _downloadedFiles.value = files
             _isDownloading.value = false
+            Log.d("CrossStick", "Downloaded ${files.size} stickers")
         }
     }
 
@@ -138,6 +152,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _currentPackId.value = packId
             val outputDir = File(getApplication<Application>().filesDir, "stickers/converted/$packId")
             if (!outputDir.exists()) outputDir.mkdirs()
+
             _downloadedFiles.value.forEachIndexed { index, file ->
                 ConversionEngine.convertToWhatsAppStatic(
                     inputFile = file,

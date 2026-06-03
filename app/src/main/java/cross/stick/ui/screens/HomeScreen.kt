@@ -30,14 +30,15 @@ fun HomeScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(error) {
-        error?.let { snackbarHostState.showSnackbar(it) }
+        error?.let {
+            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Long)
+        }
     }
 
     LaunchedEffect(stickerSet) {
         if (stickerSet != null) navigateToDownloading()
     }
 
-    // Dosya seçici
     val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
     ) { uris ->
