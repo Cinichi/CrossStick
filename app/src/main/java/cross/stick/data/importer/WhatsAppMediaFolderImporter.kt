@@ -7,76 +7,88 @@ import java.io.File
 
 class WhatsAppMediaFolderImporter {
 
+    private val mediaPaths = listOf(
+        "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Stickers",
+        "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Backup Excluded Stickers",
+        "WhatsApp/Media/WhatsApp Stickers"
+    )
+
     fun importPacks(): List<UniversalStickerPack> {
         val packs = mutableListOf<UniversalStickerPack>()
+        val externalStorage = Environment.getExternalStorageDirectory()
 
-        val baseDir = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val external = Environment.getExternalStorageDirectory()
-            File(external, "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Stickers")
-        } else {
-            File(Environment.getExternalStorageDirectory(), "WhatsApp/Media/WhatsApp Stickers")
-        }
-
-        if (!baseDir.exists() || !baseDir.canRead()) {
-            Log.d("WAImporter", "Media folder not accessible")
-            return packs
-        }
-
-        // Group by folder modified time
-        val allFiles = baseDir.walkTopDown()
-            .filter { it.isFile && it.extension.equals("webp", ignoreCase = true) }
-            .toList()
-
-        if (allFiles.isEmpty()) return packs
-
-        // Simple grouping by creation time proximity (1 hour)
-        val sortedFiles = allFiles.sortedBy { it.lastModified() }
-        val groups = mutableListOf<MutableList<File>>()
-        var currentGroup = mutableListOf<File>()
-        var groupTime = 0L
-
-        for (file in sortedFiles) {
-            if (currentGroup.isEmpty()) {
-                currentGroup.add(file)
-                groupTime = file.lastModified()
-            } else {
-                if (kotlin.math.abs(file.lastModified() - groupTime) < 3600_000) { // 1 hour
-                    currentGroup.add(file)
-                } else {
-                    groups.add(currentGroup)
-                    currentGroup = mutableListOf(file)
+        for (relativePath in mediaPaths) {
+            val dir = File(externalStorage, relativePath)
+            if (dir.exists() && dir.canRead()) {
+                val pack = createPackFromDirectory(dir, relativePath)
+                if (pack != null && pack.stickers.isNotEmpty()) {
+                    packs.add(pack)
                 }
-                groupTime = file.lastModified()
             }
-        }
-        if (currentGroup.isNotEmpty()) groups.add(currentGroup)
-
-        groups.forEachIndexed { index, files ->
-            val stickers = files.mapIndexed { i, file ->
-                val format = StickerFileTypeDetector.detectFormat(file)
-                val mimeType = StickerFileTypeDetector.getMimeType(format)
-                UniversalSticker(
-                    id = "wa-media-$index-$i",
-                    file = file,
-                    originalFileName = file.name,
-                    emojiList = listOf("😀"),
-                    index = i,
-                    width = null, height = null,
-                    mimeType = mimeType
-                )
-            }
-
-            packs.add(UniversalStickerPack(
-                id = "wa-media-pack-$index",
-                title = "WhatsApp Stickers ${index + 1}",
-                sourceAppPackage = "com.whatsapp",
-                sourceAuthority = null,
-                sourceType = SourceType.WHATSAPP_MEDIA_FOLDER,
-                format = StickerFormat.STATIC,
-                stickers = stickers
-            ))
         }
 
         return packs
+    }
+
+    private fun createPackFromDirectory(dir: File, path: String): UniversalStickerPack? {
+        val files = dir.listFiles()?.filter { 
+            it.isFile && it.extension.equals("webp", ignoreCase = true) 
+        } ?: return null
+
+        if (files.isEmpty()) return null
+
+        // Try to find STK- prefixed files (WhatsApp saved stickers)
+        val stkFiles = files.filter { it.name.startsWith("STK-") }
+        val sourceFiles = if (stkFiles.isNotEmpty()) stkFiles else files
+
+        // Group by date proximity (1 hour windows)
+        val sorted = sourceFiles.sortedBy { it.lastModified() }
+        val groups = mutableListOf<MutableList<File>>()
+        var current = mutableListOf<File>()
+        var lastTime = 0L
+
+        for (file in sorted) {
+            if (current.isEmpty() || kotlin.math.abs(file.lastModified() - lastTime) < 3600_000) {
+                current.add(file)
+            } else {
+                if (current.isNotEmpty()) groups.add(current)
+                current = mutableListOf(file)
+            }
+            lastTime = file.lastModified()
+        }
+        if (current.isNotEmpty()) groups.add(current)
+
+        if (groups.size == 1) {
+            // Single group - likely one pack
+            val stickers = groups[0].mapIndexed { index, file ->
+                createSticker(file, index)
+            }
+            return UniversalStickerPack(
+                id = "wa-media-${path.hashCode()}",
+                title = "WhatsApp Stickers",
+                sourcePackage = "com.whatsapp",
+                sourceAuthority = null,
+                sourceLayer = SourceLayer.WHATSAPP_MEDIA_FOLDER,
+                confidence = Confidence.LOW,
+                format = StickerFormat.STATIC,
+                stickers = stickers
+            )
+        }
+
+        return null
+    }
+
+    private fun createSticker(file: File, index: Int): UniversalSticker {
+        val format = StickerFileTypeDetector.detectFormat(file)
+        return UniversalSticker(
+            id = "wa-media-$index",
+            sourcePath = file.absolutePath,
+            sourceUri = null,
+            localFile = file,
+            originalFileName = file.name,
+            emojiList = listOf("😀"),
+            index = index,
+            mimeType = StickerFileTypeDetector.getMimeType(format)
+        )
     }
 }
