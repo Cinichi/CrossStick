@@ -1,133 +1,72 @@
 package cross.stick.ui.screens
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import cross.stick.viewmodel.MainViewModel
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(
-    themeMode: String,
-    onThemeChanged: (String) -> Unit,
-    onClearAll: () -> Unit
-) {
-    var showDeleteDialog by remember { mutableStateOf(false) }
+fun SettingsScreen(viewModel: MainViewModel) {
+    val currentToken by viewModel.botToken.collectAsState()
+    val currentAuthor by viewModel.authorName.collectAsState()
+    var token by remember { mutableStateOf(currentToken) }
+    var author by remember { mutableStateOf(currentAuthor) }
+    var passwordVisible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentToken) { token = currentToken }
+    LaunchedEffect(currentAuthor) { author = currentAuthor }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text(
-            text = "Settings",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold
-        )
+        Text("Settings", style = MaterialTheme.typography.headlineMedium)
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Theme section
-        Text(
-            text = "Appearance",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ThemeChip(
-                label = "Light",
-                icon = Icons.Default.LightMode,
-                selected = themeMode == "light",
-                onClick = { onThemeChanged("light") }
-            )
-            ThemeChip(
-                label = "Dark",
-                icon = Icons.Default.DarkMode,
-                selected = themeMode == "dark",
-                onClick = { onThemeChanged("dark") }
-            )
-            ThemeChip(
-                label = "System",
-                icon = Icons.Default.PhoneAndroid,
-                selected = themeMode == "system",
-                onClick = { onThemeChanged("system") }
-            )
-        }
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        // Danger zone
-        Text(
-            text = "Danger Zone",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.error
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        OutlinedButton(
-            onClick = { showDeleteDialog = true },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.outlinedButtonColors(
-                contentColor = MaterialTheme.colorScheme.error
-            )
-        ) {
-            Icon(Icons.Default.Delete, contentDescription = null)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Clear All Data")
-        }
-    }
-
-    if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Clear All Data?") },
-            text = { Text("This will remove all downloaded stickers and pack data.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteDialog = false
-                        onClearAll()
-                    }
-                ) {
-                    Text("Clear", color = MaterialTheme.colorScheme.error)
+        OutlinedTextField(
+            value = token,
+            onValueChange = { token = it },
+            label = { Text("Bot Token") },
+            trailingIcon = {
+                IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                    Icon(
+                        if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                        contentDescription = null
+                    )
                 }
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("Cancel")
-                }
-            }
+            visualTransformation = if (passwordVisible) VisualTransformation.None
+                                  else PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
         )
-    }
-}
 
-@Composable
-private fun ThemeChip(
-    label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        label = { Text(label) },
-        leadingIcon = if (selected) {
-            { Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp)) }
-        } else null
-    )
+        OutlinedTextField(
+            value = author,
+            onValueChange = { author = it },
+            label = { Text("Publisher Name") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Button(
+            onClick = {
+                viewModel.updateSettings(token.trim(), author.trim())
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Save Settings")
+        }
+    }
 }

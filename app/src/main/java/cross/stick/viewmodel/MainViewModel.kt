@@ -66,9 +66,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch {
-            onboardingComplete.collect {
-                _isReady.value = true
-            }
+            onboardingComplete.collect { _isReady.value = true }
         }
         loadSavedPacks()
     }
@@ -81,12 +79,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ?.filter { it.isDirectory }
             ?.map { packDir ->
                 val stickerCount = packDir.listFiles { f -> f.extension == "webp" }?.size ?: 0
-                SavedPack(
-                    id = packDir.name,
-                    name = packDir.name,
-                    stickerCount = stickerCount,
-                    path = packDir
-                )
+                SavedPack(id = packDir.name, name = packDir.name, stickerCount = stickerCount, path = packDir)
             } ?: emptyList()
     }
 
@@ -98,14 +91,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun updateSettings(token: String, author: String) {
+        viewModelScope.launch {
+            prefs.saveBotToken(token)
+            prefs.saveAuthorName(author)
+        }
+    }
+
     fun fetchStickerSet(link: String) {
         viewModelScope.launch {
             _phase.value = ImportPhase.Fetching
             _downloadedFiles.value = emptyList()
-
             val packName = repository.extractPackName(link)
-            Log.d("CrossStick", "Fetching pack: $packName")
-
             val result = repository.fetchStickerSet(packName)
             result.fold(
                 onSuccess = { stickerSet ->
@@ -127,18 +124,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!outputDir.exists()) outputDir.mkdirs()
 
         stickerSet.stickers.forEachIndexed { index, sticker ->
-            // Skip animated stickers for now
             if (sticker.is_animated || sticker.is_video) {
                 _phase.value = ImportPhase.Downloading(index + 1, total)
                 return@forEachIndexed
             }
 
             _phase.value = ImportPhase.Downloading(index + 1, total)
-
             repository.downloadSticker(sticker.file_id, packId, index).fold(
                 onSuccess = { file ->
                     files.add(file)
-                    // Convert immediately
                     withContext(Dispatchers.Default) {
                         ConversionEngine.convertToWhatsAppStatic(
                             inputFile = file,
@@ -148,15 +142,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     _phase.value = ImportPhase.Converting(index + 1, total)
                 },
-                onFailure = { e ->
-                    Log.e("CrossStick", "Failed sticker $index: ${e.message}")
-                }
+                onFailure = { e -> Log.e("CrossStick", "Failed sticker $index: ${e.message}") }
             )
         }
 
         _downloadedFiles.value = files
-
-        // Create tray icon
         if (files.isNotEmpty()) {
             withContext(Dispatchers.Default) {
                 ConversionEngine.createTrayFromFile(files[0], outputDir)
@@ -166,8 +156,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _phase.value = ImportPhase.Done
         _convertedPackId.value = packId
         loadSavedPacks()
-
-        // Auto-add to WhatsApp
         addToWhatsApp(packId)
     }
 
@@ -193,6 +181,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 putStringArrayListExtra("STICKER_EMOJIS", ArrayList(emojis))
                 type = "image/webp"
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             if (intent.resolveActivity(context.packageManager) != null) {
                 context.startActivity(intent)

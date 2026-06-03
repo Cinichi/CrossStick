@@ -41,6 +41,7 @@ object WhatsAppIntentHelper {
             putExtra("sticker_pack_authority", authority)
             putExtra("sticker_pack_name", packName)
             setPackage(packageName)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(intent)
     }
