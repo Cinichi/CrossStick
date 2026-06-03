@@ -24,6 +24,13 @@ fun AppNavGraph(viewModel: MainViewModel) {
     val isReady by viewModel.isReady.collectAsState(initial = false)
     val startDestination = if (onboardingComplete) Routes.HOME else Routes.ONBOARDING
 
+    val isLoading by viewModel.isLoading.collectAsState()
+    val error by viewModel.error.collectAsState()
+    val stickerSet by viewModel.stickerSet.collectAsState()
+    val isDownloading by viewModel.isDownloading.collectAsState()
+    val isConverting by viewModel.isConverting.collectAsState()
+    val currentPackId by viewModel.currentPackId.collectAsState()
+
     if (isReady) {
         NavHost(
             navController = navController,
@@ -46,6 +53,9 @@ fun AppNavGraph(viewModel: MainViewModel) {
 
             composable(Routes.HOME) {
                 HomeScreen(
+                    isLoading = isLoading,
+                    error = error,
+                    stickerSet = stickerSet,
                     onFetchPack = { link -> viewModel.fetchStickerSet(link) },
                     navigateToDownloading = { navController.navigate(Routes.DOWNLOADING) },
                     onImportFromWhatsApp = { uris, emojis -> viewModel.importToTelegram(uris, emojis) }
@@ -53,11 +63,10 @@ fun AppNavGraph(viewModel: MainViewModel) {
             }
 
             composable(Routes.DOWNLOADING) {
-                val stickerSet = viewModel.stickerSet.collectAsState().value
                 val packName = stickerSet?.name ?: "Unknown pack"
                 DownloadingScreen(packName = packName, progress = 50)
-                LaunchedEffect(viewModel.isDownloading) {
-                    if (!viewModel.isDownloading.value) {
+                LaunchedEffect(isDownloading) {
+                    if (!isDownloading) {
                         navController.navigate(Routes.PREVIEW) {
                             popUpTo(Routes.DOWNLOADING) { inclusive = true }
                         }
@@ -81,10 +90,9 @@ fun AppNavGraph(viewModel: MainViewModel) {
             }
 
             composable(Routes.CONVERTING) {
-                val packId = viewModel.currentPackId.collectAsState().value ?: "unknown"
-                ConvertingScreen(packName = packId, progress = 70)
-                LaunchedEffect(viewModel.isConverting) {
-                    if (!viewModel.isConverting.value) {
+                ConvertingScreen(packName = currentPackId ?: "unknown", progress = 70)
+                LaunchedEffect(isConverting) {
+                    if (!isConverting) {
                         navController.navigate(Routes.HOME) {
                             popUpTo(Routes.HOME) { inclusive = true }
                         }

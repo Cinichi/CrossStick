@@ -1,6 +1,7 @@
 package cross.stick.viewmodel
 
 import android.app.Application
+import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -105,7 +106,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     downloadAllStickers(stickerSet)
                 },
                 onFailure = { e ->
-                    _error.value = e.message ?: "Failed to fetch sticker set"
+                    _error.value = "Error: ${e.message ?: "Could not fetch stickers"}"
+                    _stickerSet.value = null
                 }
             )
             _isLoading.value = false
@@ -121,7 +123,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             stickerSet.stickers.forEachIndexed { index, sticker ->
                 repository.downloadSticker(sticker.file_id, packId, index).fold(
                     onSuccess = { file -> files.add(file) },
-                    onFailure = { /* skip */ }
+                    onFailure = { /* skip failed stickers */ }
                 )
             }
             _downloadedFiles.value = files
@@ -167,10 +169,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun importToTelegram(uris: List<Uri>, emojis: List<String>) {
         val context = getApplication<Application>()
-        val intent = android.content.Intent("org.telegram.messenger.CREATE_STICKER_PACK").apply {
-            putParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, ArrayList(uris))
+        val intent = Intent("org.telegram.messenger.CREATE_STICKER_PACK").apply {
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
             putStringArrayListExtra("STICKER_EMOJIS", ArrayList(emojis))
             type = "image/*"
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(intent)
     }
