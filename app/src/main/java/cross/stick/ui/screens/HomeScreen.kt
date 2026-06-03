@@ -1,5 +1,8 @@
 package cross.stick.ui.screens
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -12,14 +15,36 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import cross.stick.viewmodel.MainViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
-    onFetchPack: (String) -> Unit
+    onFetchPack: (String) -> Unit,
+    navigateToDownloading: () -> Unit,
+    onImportFromWhatsApp: (List<Uri>, List<String>) -> Unit
 ) {
     var link by remember { mutableStateOf("") }
-    var isLoading by remember { mutableStateOf(false) }
+    val viewModel: MainViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val isLoading by viewModel.isLoading.collectAsState()
+    val error by viewModel.error.collectAsState()
+    val stickerSet by viewModel.stickerSet.collectAsState()
+
+    // When stickerSet becomes non-null, navigate to downloading
+    LaunchedEffect(stickerSet) {
+        if (stickerSet != null) navigateToDownloading()
+    }
+
+    // WhatsApp -> Telegram file picker
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            val emojis = List(uris.size) { "\uD83D\uDE00" } // default emoji
+            onImportFromWhatsApp(uris, emojis)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -64,8 +89,8 @@ fun HomeScreen(
 
         Button(
             onClick = {
-                isLoading = true
                 onFetchPack(link)
+                link = ""
             },
             enabled = link.isNotBlank() && !isLoading,
             modifier = Modifier
@@ -86,10 +111,12 @@ fun HomeScreen(
             }
         }
 
+        error?.let { msg ->
+            Text(msg, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+
         Spacer(modifier = Modifier.height(32.dp))
-
         HorizontalDivider()
-
         Spacer(modifier = Modifier.height(32.dp))
 
         Text(
@@ -97,7 +124,6 @@ fun HomeScreen(
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold
         )
-
         Text(
             text = "Select sticker files to import to Telegram",
             style = MaterialTheme.typography.bodyMedium,
@@ -107,7 +133,7 @@ fun HomeScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
         OutlinedButton(
-            onClick = { /* TODO: WhatsApp import */ },
+            onClick = { importLauncher.launch("image/*") },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(54.dp),

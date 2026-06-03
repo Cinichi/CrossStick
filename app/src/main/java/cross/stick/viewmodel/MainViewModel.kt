@@ -17,6 +17,13 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
 
+data class SavedPack(
+    val id: String,
+    val name: String,
+    val stickerCount: Int,
+    val path: File
+)
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val prefs = PreferencesManager(application)
@@ -47,7 +54,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentPackId = MutableStateFlow<String?>(null)
     val currentPackId: StateFlow<String?> = _currentPackId.asStateFlow()
 
-    private val downloadedFilePaths = mutableListOf<File>()
+    private val _downloadedFiles = MutableStateFlow<List<File>>(emptyList())
+    val downloadedFilePaths: List<File> get() = _downloadedFiles.value
+
+    private val _savedPacks = MutableStateFlow<List<SavedPack>>(emptyList())
+    val savedPacks: StateFlow<List<SavedPack>> = _savedPacks.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -55,6 +66,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _isReady.value = true
             }
         }
+        loadSavedPacks()
+    }
+
+    private fun loadSavedPacks() {
+        val context = getApplication<Application>()
+        val packsDir = File(context.filesDir, "stickers/converted")
+        if (!packsDir.exists()) return
+        _savedPacks.value = packsDir.listFiles()
+            ?.filter { it.isDirectory }
+            ?.map { packDir ->
+                val stickerCount = packDir.listFiles { f -> f.extension == "webp" }?.size ?: 0
+                SavedPack(
+                    id = packDir.name,
+                    name = packDir.name,
+                    stickerCount = stickerCount,
+                    path = packDir
+                )
+            } ?: emptyList()
     }
 
     fun completeOnboarding(token: String, author: String) {
@@ -73,7 +102,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             repository.fetchStickerSet(packName).fold(
                 onSuccess = { stickerSet ->
                     _stickerSet.value = stickerSet
-                    // Start download immediately
                     downloadAllStickers(stickerSet)
                 },
                 onFailure = { e ->
@@ -88,43 +116,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _isDownloading.value = true
             _error.value = null
-            downloadedFilePaths.clear()
+            val files = mutableListOf<File>()
             val packId = stickerSet.name.replace(" ", "_")
             stickerSet.stickers.forEachIndexed { index, sticker ->
                 repository.downloadSticker(sticker.file_id, packId, index).fold(
-                    onSuccess = { file -> downloadedFilePaths.add(file) },
-                    onFailure = { /* skip failed downloads */ }
+                    onSuccess = { file -> files.add(file) },
+                    onFailure = { /* skip */ }
                 )
             }
+            _downloadedFiles.value = files
             _isDownloading.value = false
-            convertAllStickers(packId)
         }
     }
 
-    private fun convertAllStickers(packId: String) {
+    fun convertAllStickers() {
+        val packId = _stickerSet.value?.name?.replace(" ", "_") ?: return
         viewModelScope.launch {
             _isConverting.value = true
             _currentPackId.value = packId
             val outputDir = File(getApplication<Application>().filesDir, "stickers/converted/$packId")
             if (!outputDir.exists()) outputDir.mkdirs()
-
-            downloadedFilePaths.forEachIndexed { index, file ->
+            _downloadedFiles.value.forEachIndexed { index, file ->
                 ConversionEngine.convertToWhatsAppStatic(
                     inputFile = file,
                     outputDir = outputDir,
                     outputName = "sticker_$index.webp"
                 )
             }
-            // Create tray from first sticker
-            if (downloadedFilePaths.isNotEmpty()) {
+            if (_downloadedFiles.value.isNotEmpty()) {
                 ConversionEngine.createTrayFromFile(
-                    inputFile = downloadedFilePaths[0],
+                    inputFile = _downloadedFiles.value[0],
                     outputDir = outputDir
                 )
             }
             _isConverting.value = false
-            _stickerSet.value = null
             addToWhatsApp(packId)
+            loadSavedPacks()
         }
     }
 
