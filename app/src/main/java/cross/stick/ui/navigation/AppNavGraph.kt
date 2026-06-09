@@ -53,10 +53,24 @@ fun AppNavGraph(viewModel: MainViewModel) {
     val currentRoute = navBackStackEntry?.destination?.route
     val context = LocalContext.current
 
+    // Tracks remaining pack IDs to send to WhatsApp in sequence (multi-pack flow)
+    var pendingPackIds by remember { mutableStateOf<List<String>>(emptyList()) }
+
     val waLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_CANCELED) {
             val error = result.data?.getStringExtra("validation_error")
             Toast.makeText(context, error ?: "Sticker pack not added", Toast.LENGTH_LONG).show()
+        }
+        // After WhatsApp returns, send next pending pack if any
+        if (pendingPackIds.isNotEmpty()) {
+            val nextId = pendingPackIds.first()
+            pendingPackIds = pendingPackIds.drop(1)
+            val errors = viewModel.validatePackForWhatsApp(nextId)
+            if (errors.isEmpty()) {
+                waLauncher.launch(viewModel.getWhatsAppIntent(nextId))
+            } else {
+                Toast.makeText(context, "Pack $nextId: ${errors.joinToString()}", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -78,6 +92,30 @@ fun AppNavGraph(viewModel: MainViewModel) {
                 } else {
                     Toast.makeText(context, errors.joinToString("\n"), Toast.LENGTH_LONG).show()
                 }
+                viewModel.resetPhase()
+                navController.navigate(Routes.HOME) { popUpTo(Routes.PROGRESS) { inclusive = true } }
+            }
+            is ImportPhase.MultiDone -> {
+                // Multiple packs: send the first one to WhatsApp,
+                // store the rest in pendingPackIds to send after each returns
+                val packIds = (phase as ImportPhase.MultiDone).packIds
+                Toast.makeText(
+                    context,
+                    "Created ${packIds.size} packs. Adding to WhatsApp one by one...",
+                    Toast.LENGTH_LONG
+                ).show()
+
+                if (packIds.isNotEmpty()) {
+                    val firstId = packIds.first()
+                    pendingPackIds = packIds.drop(1) // queue the rest
+                    val errors = viewModel.validatePackForWhatsApp(firstId)
+                    if (errors.isEmpty()) {
+                        waLauncher.launch(viewModel.getWhatsAppIntent(firstId))
+                    } else {
+                        Toast.makeText(context, errors.joinToString("\n"), Toast.LENGTH_LONG).show()
+                    }
+                }
+
                 viewModel.resetPhase()
                 navController.navigate(Routes.HOME) { popUpTo(Routes.PROGRESS) { inclusive = true } }
             }
