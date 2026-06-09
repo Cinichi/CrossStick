@@ -8,6 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import cross.stick.viewmodel.ImportPhase
+import kotlin.math.ceil
 
 @Composable
 fun ProgressScreen(
@@ -58,6 +59,15 @@ fun ProgressScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text("${phase.current} of ${phase.total}", style = MaterialTheme.typography.bodyMedium)
+                if (phase.total > 30) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    val packCount = ceil(phase.total / 30.0).toInt()
+                    Text(
+                        "Will create $packCount packs of 30",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
             is ImportPhase.PreviewReady -> {
                 Text("Ready to preview", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -76,13 +86,37 @@ fun ProgressScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("${phase.current} of ${phase.total}", style = MaterialTheme.typography.bodyMedium)
+                val currentPack = ceil(phase.current / 30.0).toInt()
+                val totalPacks = ceil(phase.total / 30.0).toInt()
+                if (totalPacks > 1) {
+                    Text(
+                        "Pack $currentPack of $totalPacks · Sticker ${phase.current} of ${phase.total}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                } else {
+                    Text("${phase.current} of ${phase.total}", style = MaterialTheme.typography.bodyMedium)
+                }
             }
             is ImportPhase.Done -> {
                 Text("✅", style = MaterialTheme.typography.displaySmall)
                 Spacer(modifier = Modifier.height(16.dp))
                 Text("Done!", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                 Text("Stickers added to WhatsApp", style = MaterialTheme.typography.bodyLarge)
+            }
+            is ImportPhase.MultiDone -> {
+                Text("✅", style = MaterialTheme.typography.displaySmall)
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Done!", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    "${phase.packIds.size} packs created",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    "Adding each pack to WhatsApp...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             is ImportPhase.Failed -> {
                 Text("❌", style = MaterialTheme.typography.displaySmall)
