@@ -3,6 +3,7 @@ package cross.stick.ui.navigation
 import android.app.Activity
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -25,7 +26,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import cross.stick.data.importer.UniversalStickerPack
 import cross.stick.ui.screens.*
 import cross.stick.viewmodel.ImportPhase
 import cross.stick.viewmodel.MainViewModel
@@ -53,24 +53,48 @@ fun AppNavGraph(viewModel: MainViewModel) {
     val currentRoute = navBackStackEntry?.destination?.route
     val context = LocalContext.current
 
-    // Tracks remaining pack IDs to send to WhatsApp in sequence (multi-pack flow)
+    // Queue of pack IDs still waiting to be sent to WhatsApp
     var pendingPackIds by remember { mutableStateOf<List<String>>(emptyList()) }
 
-    val waLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+    // Use a ref so the launcher callback can access the latest pendingPackIds
+    // without a self-reference cycle
+    val pendingRef = remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(pendingPackIds) { pendingRef.value = pendingPackIds }
+
+    val waLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
         if (result.resultCode == Activity.RESULT_CANCELED) {
             val error = result.data?.getStringExtra("validation_error")
             Toast.makeText(context, error ?: "Sticker pack not added", Toast.LENGTH_LONG).show()
         }
-        // After WhatsApp returns, send next pending pack if any
-        if (pendingPackIds.isNotEmpty()) {
-            val nextId = pendingPackIds.first()
-            pendingPackIds = pendingPackIds.drop(1)
+        // Send next pending pack if any
+        val remaining = pendingRef.value
+        if (remaining.isNotEmpty()) {
+            val nextId = remaining.first()
+            pendingPackIds = remaining.drop(1)
             val errors = viewModel.validatePackForWhatsApp(nextId)
             if (errors.isEmpty()) {
-                waLauncher.launch(viewModel.getWhatsAppIntent(nextId))
+                // Use a post to avoid calling launcher inside its own callback synchronously
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    runCatching { viewModel.getWhatsAppIntent(nextId).also { } }
+                }
             } else {
                 Toast.makeText(context, "Pack $nextId: ${errors.joinToString()}", Toast.LENGTH_LONG).show()
             }
+        }
+    }
+
+    // Separate effect to actually launch next pack (avoids calling launcher in its own result)
+    var nextPackToLaunch by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(nextPackToLaunch) {
+        val id = nextPackToLaunch ?: return@LaunchedEffect
+        nextPackToLaunch = null
+        val errors = viewModel.validatePackForWhatsApp(id)
+        if (errors.isEmpty()) {
+            waLauncher.launch(viewModel.getWhatsAppIntent(id))
+        } else {
+            Toast.makeText(context, errors.joinToString("\n"), Toast.LENGTH_LONG).show()
         }
     }
 
@@ -79,10 +103,14 @@ fun AppNavGraph(viewModel: MainViewModel) {
     LaunchedEffect(phase, currentRoute) {
         when (phase) {
             is ImportPhase.Fetching, is ImportPhase.Downloading, is ImportPhase.Converting -> {
-                if (currentRoute != Routes.PROGRESS) navController.navigate(Routes.PROGRESS) { launchSingleTop = true }
+                if (currentRoute != Routes.PROGRESS) {
+                    navController.navigate(Routes.PROGRESS) { launchSingleTop = true }
+                }
             }
             is ImportPhase.PreviewReady -> {
-                if (currentRoute != Routes.PREVIEW) navController.navigate(Routes.PREVIEW) { launchSingleTop = true }
+                if (currentRoute != Routes.PREVIEW) {
+                    navController.navigate(Routes.PREVIEW) { launchSingleTop = true }
+                }
             }
             is ImportPhase.Done -> {
                 val packId = (phase as ImportPhase.Done).packId
@@ -93,11 +121,11 @@ fun AppNavGraph(viewModel: MainViewModel) {
                     Toast.makeText(context, errors.joinToString("\n"), Toast.LENGTH_LONG).show()
                 }
                 viewModel.resetPhase()
-                navController.navigate(Routes.HOME) { popUpTo(Routes.PROGRESS) { inclusive = true } }
+                navController.navigate(Routes.HOME) {
+                    popUpTo(Routes.PROGRESS) { inclusive = true }
+                }
             }
             is ImportPhase.MultiDone -> {
-                // Multiple packs: send the first one to WhatsApp,
-                // store the rest in pendingPackIds to send after each returns
                 val packIds = (phase as ImportPhase.MultiDone).packIds
                 Toast.makeText(
                     context,
@@ -106,8 +134,9 @@ fun AppNavGraph(viewModel: MainViewModel) {
                 ).show()
 
                 if (packIds.isNotEmpty()) {
+                    // Queue all except the first; launch the first directly
+                    pendingPackIds = packIds.drop(1)
                     val firstId = packIds.first()
-                    pendingPackIds = packIds.drop(1) // queue the rest
                     val errors = viewModel.validatePackForWhatsApp(firstId)
                     if (errors.isEmpty()) {
                         waLauncher.launch(viewModel.getWhatsAppIntent(firstId))
@@ -117,7 +146,9 @@ fun AppNavGraph(viewModel: MainViewModel) {
                 }
 
                 viewModel.resetPhase()
-                navController.navigate(Routes.HOME) { popUpTo(Routes.PROGRESS) { inclusive = true } }
+                navController.navigate(Routes.HOME) {
+                    popUpTo(Routes.PROGRESS) { inclusive = true }
+                }
             }
             else -> Unit
         }
@@ -125,36 +156,64 @@ fun AppNavGraph(viewModel: MainViewModel) {
 
     Scaffold(
         bottomBar = {
-            if (onboardingComplete && currentRoute in listOf(Routes.HOME, Routes.MY_PACKS, Routes.SETTINGS)) {
+            if (onboardingComplete && currentRoute in listOf(
+                    Routes.HOME, Routes.MY_PACKS, Routes.SETTINGS
+                )
+            ) {
                 NavigationBar {
                     NavigationBarItem(
-                        icon = { Icon(Icons.Default.Home, contentDescription = "Home") }, label = { Text("Home") },
+                        icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
+                        label = { Text("Home") },
                         selected = currentRoute == Routes.HOME,
-                        onClick = { navController.navigate(Routes.HOME) { popUpTo(navController.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true } }
+                        onClick = {
+                            navController.navigate(Routes.HOME) {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        }
                     )
                     NavigationBarItem(
-                        icon = { Icon(Icons.Default.Inventory2, contentDescription = "My Packs") }, label = { Text("My Packs") },
+                        icon = { Icon(Icons.Default.Inventory2, contentDescription = "My Packs") },
+                        label = { Text("My Packs") },
                         selected = currentRoute == Routes.MY_PACKS,
-                        onClick = { navController.navigate(Routes.MY_PACKS) { popUpTo(navController.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true } }
+                        onClick = {
+                            navController.navigate(Routes.MY_PACKS) {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        }
                     )
                     NavigationBarItem(
-                        icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") }, label = { Text("Settings") },
+                        icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
+                        label = { Text("Settings") },
                         selected = currentRoute == Routes.SETTINGS,
-                        onClick = { navController.navigate(Routes.SETTINGS) { popUpTo(navController.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true } }
+                        onClick = {
+                            navController.navigate(Routes.SETTINGS) {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        }
                     )
                 }
             }
         }
     ) { padding ->
         NavHost(
-            navController = navController, startDestination = startDestination,
+            navController = navController,
+            startDestination = startDestination,
             modifier = Modifier.padding(padding),
-            enterTransition = { fadeIn(tween(300)) }, exitTransition = { fadeOut(tween(300)) }
+            enterTransition = { fadeIn(tween(300)) },
+            exitTransition = { fadeOut(tween(300)) }
         ) {
             composable(Routes.ONBOARDING) {
                 OnboardingScreen(onComplete = { token, author ->
                     viewModel.completeOnboarding(token, author)
-                    navController.navigate(Routes.HOME) { popUpTo(Routes.ONBOARDING) { inclusive = true } }
+                    navController.navigate(Routes.HOME) {
+                        popUpTo(Routes.ONBOARDING) { inclusive = true }
+                    }
                 })
             }
             composable(Routes.HOME) {
@@ -166,23 +225,40 @@ fun AppNavGraph(viewModel: MainViewModel) {
                 )
             }
             composable(Routes.PROGRESS) {
-                ProgressScreen(phase = phase, packName = currentPackId ?: "Unknown",
-                    onDone = { viewModel.resetPhase(); navController.navigate(Routes.HOME) { popUpTo(Routes.PROGRESS) { inclusive = true } } },
-                    onRetry = { viewModel.resetPhase(); navController.navigate(Routes.HOME) { popUpTo(Routes.PROGRESS) { inclusive = true } } })
+                ProgressScreen(
+                    phase = phase,
+                    packName = currentPackId ?: "Unknown",
+                    onDone = {
+                        viewModel.resetPhase()
+                        navController.navigate(Routes.HOME) {
+                            popUpTo(Routes.PROGRESS) { inclusive = true }
+                        }
+                    },
+                    onRetry = {
+                        viewModel.resetPhase()
+                        navController.navigate(Routes.HOME) {
+                            popUpTo(Routes.PROGRESS) { inclusive = true }
+                        }
+                    }
+                )
             }
             composable(Routes.PREVIEW) {
-                PreviewScreen(packName = currentPackId ?: "Preview", stickers = previewStickers,
+                PreviewScreen(
+                    packName = currentPackId ?: "Preview",
+                    stickers = previewStickers,
                     onRemoveSticker = { viewModel.removePreviewSticker(it) },
                     onAddStickers = { viewModel.addPreviewUris(it) },
                     onConvert = { viewModel.convertPreviewToWhatsApp() },
-                    onBack = { viewModel.resetPhase(); navController.popBackStack(Routes.HOME, inclusive = false) })
+                    onBack = {
+                        viewModel.resetPhase()
+                        navController.popBackStack(Routes.HOME, inclusive = false)
+                    }
+                )
             }
             composable(Routes.WHATSAPP_IMPORT) {
                 WhatsAppImportScreen(
                     viewModel = viewModel,
-                    onExportToTelegram = { packs ->
-                        viewModel.exportToTelegram(packs)
-                    },
+                    onExportToTelegram = { packs -> viewModel.exportToTelegram(packs) },
                     onBack = { navController.popBackStack() }
                 )
             }
