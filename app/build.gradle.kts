@@ -69,12 +69,10 @@ dependencies {
     implementation("com.google.crypto.tink:tink-android:1.13.0")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
-    // Lottie for reading animated TGS stickers
     implementation("com.airbnb.android:lottie:6.4.0")
     
-    // Using '+' forces Gradle to automatically resolve the latest available
-    // version on Maven Central, bypassing the specific version 404 errors.
-    implementation("com.arthenica:ffmpeg-kit-full:+")
+    // Replaced the broken FFmpegKit with rock-solid MobileFFmpeg
+    implementation("com.arthenica:mobile-ffmpeg-full:4.4")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-tooling-preview")
