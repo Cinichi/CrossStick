@@ -45,6 +45,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import cross.stick.viewmodel.PreviewSticker
+import kotlin.math.ceil
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,6 +62,10 @@ fun PreviewScreen(
     ) { uris ->
         if (uris.isNotEmpty()) onAddStickers(uris)
     }
+
+    val totalStickers = stickers.size
+    val packCount = ceil(totalStickers / 30.0).toInt()
+    val isMultiPack = totalStickers > 30
 
     Scaffold(
         topBar = {
@@ -88,14 +93,30 @@ fun PreviewScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    text = "${stickers.size}/30 stickers selected. WhatsApp requires 3–30 static stickers.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                // Info text changes depending on single vs multi-pack
+                if (isMultiPack) {
+                    Text(
+                        text = "$totalStickers stickers → will create $packCount packs of up to 30",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "WhatsApp requires 3–30 stickers per pack. Your stickers will be split automatically.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Text(
+                        text = "$totalStickers/30 stickers. WhatsApp requires 3–30 per pack.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     FilledTonalButton(
                         onClick = { addLauncher.launch("image/*") },
@@ -106,11 +127,11 @@ fun PreviewScreen(
                     }
                     Button(
                         onClick = onConvert,
-                        enabled = stickers.size >= 3,
+                        enabled = totalStickers >= 3,
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(Icons.Default.Done, contentDescription = null)
-                        Text(" Convert")
+                        Text(if (isMultiPack) " Convert ($packCount packs)" else " Convert")
                     }
                 }
             }
@@ -123,7 +144,10 @@ fun PreviewScreen(
                     .padding(padding),
                 contentAlignment = Alignment.Center
             ) {
-                Text("No stickers to preview", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "No stickers to preview",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         } else {
             LazyVerticalGrid(
@@ -136,10 +160,33 @@ fun PreviewScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 itemsIndexed(stickers) { index, sticker ->
-                    StickerPreviewCard(
-                        sticker = sticker,
-                        onRemove = { onRemoveSticker(index) }
-                    )
+                    // Show pack divider label every 30 stickers
+                    // (LazyVerticalGrid doesn't support span headers easily,
+                    //  so we overlay a badge on the first item of each chunk)
+                    val isFirstOfChunk = index % 30 == 0 && isMultiPack
+                    val chunkNumber = (index / 30) + 1
+
+                    Box {
+                        StickerPreviewCard(
+                            sticker = sticker,
+                            onRemove = { onRemoveSticker(index) }
+                        )
+                        if (isFirstOfChunk) {
+                            Text(
+                                text = "Pack $chunkNumber",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .padding(6.dp)
+                                    .background(
+                                        MaterialTheme.colorScheme.primary,
+                                        RoundedCornerShape(6.dp)
+                                    )
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
                 }
                 item {
                     Spacer(modifier = Modifier.height(88.dp))
@@ -156,7 +203,9 @@ private fun StickerPreviewCard(
 ) {
     Card(
         shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Box(
