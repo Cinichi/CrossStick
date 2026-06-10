@@ -69,6 +69,9 @@ dependencies {
     implementation("com.google.crypto.tink:tink-android:1.13.0")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
+    // Added Lottie for decoding animated Telegram stickers (.tgs)
+    implementation("com.airbnb.android:lottie:6.4.0")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-tooling-preview")
 }
