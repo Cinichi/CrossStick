@@ -5,8 +5,12 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.media.MediaMetadataRetriever
 import android.os.Build
+import com.airbnb.lottie.LottieCompositionFactory
+import com.airbnb.lottie.LottieDrawable
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.zip.GZIPInputStream
 
@@ -19,10 +23,8 @@ object ConversionEngine {
      * Converts any input file (WebP, PNG, JPEG, or TGS/WebM animated) into a
      * WhatsApp-compatible 512x512 static WebP under 100 KB.
      *
-     * For TGS (Lottie/gzip) and WebM files that Android cannot bitmap-decode
-     * directly, a solid-color placeholder tile is generated so the pack still
-     * builds. The emoji colour is derived from the file name hash so each
-     * placeholder looks distinct.
+     * For TGS (Lottie/gzip) and WebM files, we extract the first frame.
+     * If decoding fails, a solid-color placeholder tile is generated.
      */
     fun convertToWhatsAppStatic(
         inputFile: File,
@@ -34,6 +36,7 @@ object ConversionEngine {
                 ?: generatePlaceholder(inputFile)
 
             val scaledBitmap = scaleTo512Transparent(bitmap)
+     
             val outFile = File(outputDir, outputName)
             val success = writeWebp(scaledBitmap, outFile)
 
@@ -53,18 +56,54 @@ object ConversionEngine {
 
     /**
      * Try to decode the file as a bitmap.
-     * For TGS (gzip-compressed Lottie JSON) we can't render on Android without
-     * an external library, so return null and fall back to placeholder.
-     * For WebM we also fall back.
+     * Decodes standard images, extracts the first frame of WebM, 
+     * and renders the first frame of TGS (Lottie).
      */
     private fun tryDecodeBitmap(file: File): Bitmap? {
-        // Detect TGS by gzip magic bytes
-        if (isGzip(file)) return null
-        // Detect WebM by EBML magic bytes
-        if (isWebM(file)) return null
+        if (isGzip(file)) return tryDecodeTgs(file)
+        if (isWebM(file)) return tryExtractVideoFrame(file)
 
         return try {
             BitmapFactory.decodeFile(file.absolutePath)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun tryExtractVideoFrame(file: File): Bitmap? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(file.absolutePath)
+            // Extract the frame at 0 microseconds
+            retriever.getFrameAtTime(0)
+        } catch (e: Exception) {
+            null
+        } finally {
+            try { 
+                retriever.release() 
+            } catch (_: Exception) { 
+                // Ignore release errors
+            }
+        }
+    }
+
+    private fun tryDecodeTgs(file: File): Bitmap? {
+        return try {
+            val inputStream = GZIPInputStream(FileInputStream(file))
+            val result = LottieCompositionFactory.fromJsonInputStreamSync(inputStream, file.absolutePath)
+            val composition = result.value ?: return null
+
+            val bitmap = Bitmap.createBitmap(STICKER_SIZE, STICKER_SIZE, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            val drawable = LottieDrawable()
+            drawable.composition = composition
+            drawable.setBounds(0, 0, STICKER_SIZE, STICKER_SIZE)
+            
+            // Draw the first frame of the Lottie animation onto the canvas
+            drawable.progress = 0f
+            drawable.draw(canvas)
+            
+            bitmap
         } catch (e: Exception) {
             null
         }
@@ -89,9 +128,7 @@ object ConversionEngine {
     }
 
     /**
-     * Generate a solid-color 512x512 placeholder for sticker formats Android
-     * cannot decode (TGS, WebM). Uses a pastel colour derived from the filename
-     * so each placeholder is visually distinct.
+     * Generate a solid-color 512x512 placeholder if decoding fails.
      */
     private fun generatePlaceholder(file: File): Bitmap {
         val bitmap = Bitmap.createBitmap(STICKER_SIZE, STICKER_SIZE, Bitmap.Config.ARGB_8888)
@@ -132,7 +169,7 @@ object ConversionEngine {
         val result = Bitmap.createBitmap(STICKER_SIZE, STICKER_SIZE, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(result)
         val ratio = minOf(
-            STICKER_SIZE.toFloat() / original.width,
+             STICKER_SIZE.toFloat() / original.width,
             STICKER_SIZE.toFloat() / original.height
         )
         val newW = (original.width * ratio).toInt().coerceAtLeast(1)
@@ -140,6 +177,7 @@ object ConversionEngine {
         val scaled = Bitmap.createScaledBitmap(original, newW, newH, true)
         val left = (STICKER_SIZE - newW) / 2
         val top = (STICKER_SIZE - newH) / 2
+ 
         canvas.drawBitmap(scaled, left.toFloat(), top.toFloat(), null)
         scaled.recycle()
         return result
