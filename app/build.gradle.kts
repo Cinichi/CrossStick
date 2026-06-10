@@ -69,9 +69,12 @@ dependencies {
     implementation("com.google.crypto.tink:tink-android:1.13.0")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
-    // Added for Animated Sticker processing (Downgraded to stable 5.1)
+    // Lottie for reading animated TGS stickers
     implementation("com.airbnb.android:lottie:6.4.0")
-    implementation("com.arthenica:ffmpeg-kit-full:5.1")
+    
+    // Using '+' forces Gradle to automatically resolve the latest available
+    // version on Maven Central, bypassing the specific version 404 errors.
+    implementation("com.arthenica:ffmpeg-kit-full:+")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-tooling-preview")
