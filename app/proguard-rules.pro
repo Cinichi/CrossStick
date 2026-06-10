@@ -8,3 +8,11 @@
 # OkHttp
 -dontwarn okhttp3.**
 -dontwarn okio.**
+
+# FFmpegKit
+-keep class com.arthenica.ffmpegkit.** { *; }
+-dontwarn com.arthenica.ffmpegkit.**
+
+# Lottie
+-dontwarn com.airbnb.lottie.**
+-keep class com.airbnb.lottie.** { *; }
