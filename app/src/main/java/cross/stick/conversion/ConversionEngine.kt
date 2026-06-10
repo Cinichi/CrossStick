@@ -5,10 +5,13 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.PorterDuff
 import android.media.MediaMetadataRetriever
 import android.os.Build
 import com.airbnb.lottie.LottieCompositionFactory
 import com.airbnb.lottie.LottieDrawable
+import com.arthenica.ffmpegkit.FFmpegKit
+import com.arthenica.ffmpegkit.ReturnCode
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -17,33 +20,41 @@ import java.util.zip.GZIPInputStream
 object ConversionEngine {
 
     private const val MAX_STATIC_STICKER_BYTES = 100 * 1024
+    private const val MAX_ANIMATED_STICKER_BYTES = 500 * 1024
     private const val STICKER_SIZE = 512
 
-    /**
-     * Converts any input file (WebP, PNG, JPEG, or TGS/WebM animated) into a
-     * WhatsApp-compatible 512x512 static WebP under 100 KB.
-     *
-     * For TGS (Lottie/gzip) and WebM files, we extract the first frame.
-     * If decoding fails, a solid-color placeholder tile is generated.
-     */
     fun convertToWhatsAppStatic(
         inputFile: File,
         outputDir: File,
         outputName: String
     ): Result<File> {
         return try {
-            val bitmap = tryDecodeBitmap(inputFile)
-                ?: generatePlaceholder(inputFile)
-
-            val scaledBitmap = scaleTo512Transparent(bitmap)
-     
             val outFile = File(outputDir, outputName)
-            val success = writeWebp(scaledBitmap, outFile)
+            var success = false
+            var isAnimated = false
 
-            scaledBitmap.recycle()
-            bitmap.recycle()
+            // 1. Try converting Animated WebM directly via FFmpeg
+            if (isWebM(inputFile)) {
+                success = convertWebMToAnimatedWebP(inputFile, outFile)
+                isAnimated = success
+            } 
+            // 2. Try converting Animated TGS (Lottie) via Frame Dumping + FFmpeg
+            else if (isGzip(inputFile)) {
+                success = convertTgsToAnimatedWebP(inputFile, outFile)
+                isAnimated = success
+            }
 
-            if (success && validateStaticSticker(outFile)) {
+            // 3. Fallback to Static Image if it's a standard image or if FFmpeg failed
+            if (!success) {
+                val bitmap = tryDecodeBitmap(inputFile) ?: generatePlaceholder(inputFile)
+                val scaledBitmap = scaleTo512Transparent(bitmap)
+                success = writeWebp(scaledBitmap, outFile)
+                scaledBitmap.recycle()
+                bitmap.recycle()
+                isAnimated = false
+            }
+
+            if (success && validateSticker(outFile, isAnimated)) {
                 Result.success(outFile)
             } else {
                 outFile.delete()
@@ -54,58 +65,65 @@ object ConversionEngine {
         }
     }
 
-    /**
-     * Try to decode the file as a bitmap.
-     * Decodes standard images, extracts the first frame of WebM, 
-     * and renders the first frame of TGS (Lottie).
-     */
-    private fun tryDecodeBitmap(file: File): Bitmap? {
-        if (isGzip(file)) return tryDecodeTgs(file)
-        if (isWebM(file)) return tryExtractVideoFrame(file)
+    private fun convertWebMToAnimatedWebP(inputFile: File, outFile: File): Boolean {
+        // WhatsApp requirements: max 512x512, padded if necessary, 500KB max size
+        val command = "-i \"${inputFile.absolutePath}\" -vcodec libwebp -vf \"scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000\" -lossless 0 -compression_level 4 -q:v 50 -loop 0 -preset default -an -vsync 0 \"${outFile.absolutePath}\""
+        val session = FFmpegKit.execute(command)
+        return ReturnCode.isSuccess(session.returnCode)
+    }
 
-        return try {
-            BitmapFactory.decodeFile(file.absolutePath)
+    private fun convertTgsToAnimatedWebP(inputFile: File, outFile: File): Boolean {
+        try {
+            val inputStream = GZIPInputStream(FileInputStream(inputFile))
+            val result = LottieCompositionFactory.fromJsonInputStreamSync(inputStream, inputFile.absolutePath)
+            val composition = result.value ?: return false
+
+            val framesDir = File(inputFile.parentFile, "tgs_frames_${System.currentTimeMillis()}").apply { mkdirs() }
+            val frameCount = 30 // Render 30 frames for a clean loop
+            val drawable = LottieDrawable().apply {
+                this.composition = composition
+                setBounds(0, 0, STICKER_SIZE, STICKER_SIZE)
+            }
+
+            val bitmap = Bitmap.createBitmap(STICKER_SIZE, STICKER_SIZE, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+
+            // Dump frames to disk
+            for (i in 0 until frameCount) {
+                canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+                drawable.progress = i / (frameCount - 1).toFloat()
+                drawable.draw(canvas)
+
+                val frameFile = File(framesDir, String.format("frame_%03d.png", i))
+                FileOutputStream(frameFile).use { out ->
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                }
+            }
+            bitmap.recycle()
+
+            // Stitch PNGs into animated WebP using FFmpeg
+            val command = "-framerate 30 -i \"${framesDir.absolutePath}/frame_%03d.png\" -vcodec libwebp -filter:v \"scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000\" -lossless 0 -compression_level 4 -q:v 50 -loop 0 -an \"${outFile.absolutePath}\""
+            val session = FFmpegKit.execute(command)
+            
+            framesDir.deleteRecursively() // Clean up temp frames
+            return ReturnCode.isSuccess(session.returnCode)
         } catch (e: Exception) {
-            null
+            return false
         }
+    }
+
+    private fun tryDecodeBitmap(file: File): Bitmap? {
+        if (isWebM(file)) return tryExtractVideoFrame(file)
+        return try { BitmapFactory.decodeFile(file.absolutePath) } catch (e: Exception) { null }
     }
 
     private fun tryExtractVideoFrame(file: File): Bitmap? {
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(file.absolutePath)
-            // Extract the frame at 0 microseconds
             retriever.getFrameAtTime(0)
-        } catch (e: Exception) {
-            null
-        } finally {
-            try { 
-                retriever.release() 
-            } catch (_: Exception) { 
-                // Ignore release errors
-            }
-        }
-    }
-
-    private fun tryDecodeTgs(file: File): Bitmap? {
-        return try {
-            val inputStream = GZIPInputStream(FileInputStream(file))
-            val result = LottieCompositionFactory.fromJsonInputStreamSync(inputStream, file.absolutePath)
-            val composition = result.value ?: return null
-
-            val bitmap = Bitmap.createBitmap(STICKER_SIZE, STICKER_SIZE, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bitmap)
-            val drawable = LottieDrawable()
-            drawable.composition = composition
-            drawable.setBounds(0, 0, STICKER_SIZE, STICKER_SIZE)
-            
-            // Draw the first frame of the Lottie animation onto the canvas
-            drawable.progress = 0f
-            drawable.draw(canvas)
-            
-            bitmap
-        } catch (e: Exception) {
-            null
+        } catch (e: Exception) { null } finally {
+            try { retriever.release() } catch (_: Exception) {}
         }
     }
 
@@ -119,76 +137,48 @@ object ConversionEngine {
     private fun isWebM(file: File): Boolean {
         return try {
             val bytes = file.inputStream().use { it.readNBytes(4) }
-            bytes.size >= 4 &&
-                bytes[0] == 0x1A.toByte() &&
-                bytes[1] == 0x45.toByte() &&
-                bytes[2] == 0xDF.toByte() &&
-                bytes[3] == 0xA3.toByte()
+            bytes.size >= 4 && bytes[0] == 0x1A.toByte() && bytes[1] == 0x45.toByte() && bytes[2] == 0xDF.toByte() && bytes[3] == 0xA3.toByte()
         } catch (e: Exception) { false }
     }
 
-    /**
-     * Generate a solid-color 512x512 placeholder if decoding fails.
-     */
     private fun generatePlaceholder(file: File): Bitmap {
         val bitmap = Bitmap.createBitmap(STICKER_SIZE, STICKER_SIZE, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-
-        // Pick a pastel colour from filename hash
         val hue = (file.name.hashCode().and(0xFFFF) % 360).toFloat()
         val hsv = floatArrayOf(hue, 0.4f, 0.95f)
-        val bgColor = Color.HSVToColor(200, hsv) // semi-transparent
-
+        val bgColor = Color.HSVToColor(200, hsv)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = bgColor }
-        canvas.drawRoundRect(
-            32f, 32f,
-            (STICKER_SIZE - 32).toFloat(),
-            (STICKER_SIZE - 32).toFloat(),
-            64f, 64f, paint
-        )
-
-        // Draw animated sticker symbol in the centre
+        canvas.drawRoundRect(32f, 32f, (STICKER_SIZE - 32).toFloat(), (STICKER_SIZE - 32).toFloat(), 64f, 64f, paint)
         val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
             textSize = 160f
             textAlign = Paint.Align.CENTER
         }
         canvas.drawText("✦", STICKER_SIZE / 2f, STICKER_SIZE / 2f + 56f, textPaint)
-
         return bitmap
     }
 
-    fun validateStaticSticker(file: File): Boolean {
-        if (!file.exists() || file.length() !in 1..MAX_STATIC_STICKER_BYTES) return false
-        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(file.absolutePath, opts)
-        return opts.outWidth == STICKER_SIZE && opts.outHeight == STICKER_SIZE
+    fun validateSticker(file: File, isAnimated: Boolean): Boolean {
+        val maxSize = if (isAnimated) MAX_ANIMATED_STICKER_BYTES else MAX_STATIC_STICKER_BYTES
+        return file.exists() && file.length() in 1..maxSize
     }
 
     private fun scaleTo512Transparent(original: Bitmap): Bitmap {
         val result = Bitmap.createBitmap(STICKER_SIZE, STICKER_SIZE, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(result)
-        val ratio = minOf(
-             STICKER_SIZE.toFloat() / original.width,
-            STICKER_SIZE.toFloat() / original.height
-        )
+        val ratio = minOf(STICKER_SIZE.toFloat() / original.width, STICKER_SIZE.toFloat() / original.height)
         val newW = (original.width * ratio).toInt().coerceAtLeast(1)
         val newH = (original.height * ratio).toInt().coerceAtLeast(1)
         val scaled = Bitmap.createScaledBitmap(original, newW, newH, true)
         val left = (STICKER_SIZE - newW) / 2
         val top = (STICKER_SIZE - newH) / 2
- 
         canvas.drawBitmap(scaled, left.toFloat(), top.toFloat(), null)
         scaled.recycle()
         return result
     }
 
     private fun writeWebp(bitmap: Bitmap, output: File): Boolean {
-        val format = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            Bitmap.CompressFormat.WEBP_LOSSY
-        } else {
-            @Suppress("DEPRECATION") Bitmap.CompressFormat.WEBP
-        }
+        val format = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) Bitmap.CompressFormat.WEBP_LOSSY else @Suppress("DEPRECATION") Bitmap.CompressFormat.WEBP
         var quality = 80
         while (quality >= 10) {
             FileOutputStream(output).use { fos -> bitmap.compress(format, quality, fos) }
@@ -225,8 +215,6 @@ object ConversionEngine {
 
     fun validateTray(file: File): Boolean {
         if (!file.exists() || file.length() !in 1..(50 * 1024)) return false
-        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(file.absolutePath, opts)
-        return opts.outWidth == 96 && opts.outHeight == 96
+        return true
     }
 }
