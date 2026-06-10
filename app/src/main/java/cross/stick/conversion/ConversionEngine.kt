@@ -10,8 +10,8 @@ import android.media.MediaMetadataRetriever
 import android.os.Build
 import com.airbnb.lottie.LottieCompositionFactory
 import com.airbnb.lottie.LottieDrawable
-import com.arthenica.ffmpegkit.FFmpegKit
-import com.arthenica.ffmpegkit.ReturnCode
+import com.arthenica.mobileffmpeg.Config
+import com.arthenica.mobileffmpeg.FFmpeg
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -66,10 +66,9 @@ object ConversionEngine {
     }
 
     private fun convertWebMToAnimatedWebP(inputFile: File, outFile: File): Boolean {
-        // WhatsApp requirements: max 512x512, padded if necessary, 500KB max size
         val command = "-i \"${inputFile.absolutePath}\" -vcodec libwebp -vf \"scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000\" -lossless 0 -compression_level 4 -q:v 50 -loop 0 -preset default -an -vsync 0 \"${outFile.absolutePath}\""
-        val session = FFmpegKit.execute(command)
-        return ReturnCode.isSuccess(session.returnCode)
+        val rc = FFmpeg.execute(command)
+        return rc == Config.RETURN_CODE_SUCCESS
     }
 
     private fun convertTgsToAnimatedWebP(inputFile: File, outFile: File): Boolean {
@@ -88,7 +87,6 @@ object ConversionEngine {
             val bitmap = Bitmap.createBitmap(STICKER_SIZE, STICKER_SIZE, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
 
-            // Dump frames to disk
             for (i in 0 until frameCount) {
                 canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
                 drawable.progress = i / (frameCount - 1).toFloat()
@@ -101,12 +99,11 @@ object ConversionEngine {
             }
             bitmap.recycle()
 
-            // Stitch PNGs into animated WebP using FFmpeg
             val command = "-framerate 30 -i \"${framesDir.absolutePath}/frame_%03d.png\" -vcodec libwebp -filter:v \"scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000\" -lossless 0 -compression_level 4 -q:v 50 -loop 0 -an \"${outFile.absolutePath}\""
-            val session = FFmpegKit.execute(command)
+            val rc = FFmpeg.execute(command)
             
             framesDir.deleteRecursively() // Clean up temp frames
-            return ReturnCode.isSuccess(session.returnCode)
+            return rc == Config.RETURN_CODE_SUCCESS
         } catch (e: Exception) {
             return false
         }
