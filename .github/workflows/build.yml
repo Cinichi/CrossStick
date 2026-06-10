@@ -22,18 +22,11 @@ jobs:
     - name: Make gradlew executable
       run: chmod +x gradlew
 
-    - name: Decode keystore
-      run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/crossstick.jks
-
-    - name: Build release APK
-      run: ./gradlew assembleRelease
-      env:
-        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+    - name: Build debug APK
+      run: ./gradlew assembleDebug
 
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
       with:
-        name: CrossStick-release
-        path: app/build/outputs/apk/release/app-release.apk
+        name: CrossStick-debug
+        path: app/build/outputs/apk/debug/app-debug.apk
